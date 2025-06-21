@@ -1,4 +1,4 @@
-package ws
+package internal
 
 import "sync"
 
@@ -20,7 +20,7 @@ var pool64K = sync.Pool{New: func() any {
 }}
 
 // Select pool based on requested buffer size
-func getBufferForSize(size int) *[]byte { //sprawdzenie jak działa bez pointerów moze byc ciekawe
+func GetBufferForSize(size int) *[]byte { //sprawdzenie jak działa bez pointerów moze byc ciekawe
 	switch {
 	case size <= 8:
 		return pool8.Get().(*[]byte)
@@ -34,7 +34,7 @@ func getBufferForSize(size int) *[]byte { //sprawdzenie jak działa bez pointer�
 }
 
 // Return buffer to appropriate pool
-func putBuffer(buf *[]byte) {
+func PutBuffer(buf *[]byte) {
 	switch cap(*buf) {
 	case 8:
 		pool8.Put(buf)

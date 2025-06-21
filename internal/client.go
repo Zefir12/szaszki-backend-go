@@ -1,4 +1,4 @@
-package ws
+package internal
 
 import (
 	"net"
@@ -6,9 +6,10 @@ import (
 )
 
 type ClientConn struct {
-	Conn   net.Conn
-	UserID int32
-	Mu     sync.Mutex
+	Conn             net.Conn
+	UserID           int32
+	CurrentlyPlaying bool
+	Mu               sync.Mutex
 }
 
 var (

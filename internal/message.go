@@ -1,4 +1,4 @@
-package ws
+package internal
 
 import (
 	"encoding/binary"
@@ -8,7 +8,6 @@ import (
 	"github.com/gobwas/ws"
 	"github.com/gobwas/ws/wsutil"
 	authclient "github.com/zefir/szaszki-go-backend/grpc"
-	"github.com/zefir/szaszki-go-backend/internal/game"
 )
 
 type MsgType uint16
@@ -17,10 +16,12 @@ var ServerCmds = struct {
 	Ping                 MsgType
 	OutMsgUpdateVariable MsgType
 	ClientAuthenticated  MsgType
+	GameFound            MsgType
 }{
 	Ping:                 1,
 	OutMsgUpdateVariable: 2,
 	ClientAuthenticated:  3,
+	GameFound:            4,
 }
 
 var ClientCmds = struct {
@@ -58,7 +59,7 @@ func handleMessage(conn net.Conn, msgType MsgType, payload []byte, client *Clien
 			//connection alive
 		case ClientCmds.SearchingForGame:
 			log.Println("user with id", client.UserID, "wants to find game with type:", payload[0])
-			game.GetMatchmaker().Enqueue(client)
+			GetMatchmaker().Enqueue(client)
 		default:
 
 		}

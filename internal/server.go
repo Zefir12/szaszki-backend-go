@@ -1,4 +1,4 @@
-package ws
+package internal
 
 import (
 	"encoding/binary"
@@ -102,11 +102,11 @@ func handlePackets(conn net.Conn, br *wsutil.Reader, client *ClientConn) {
 		}
 
 		size := int(hdr.Length)
-		bufPtr := getBufferForSize(size)
+		bufPtr := GetBufferForSize(size)
 		buf := *bufPtr
 		if size > cap(buf) {
 			log.Printf("Frame too large: %d bytes", size)
-			putBuffer(bufPtr)
+			PutBuffer(bufPtr)
 			return
 		}
 
@@ -114,13 +114,13 @@ func handlePackets(conn net.Conn, br *wsutil.Reader, client *ClientConn) {
 		_, err = io.ReadFull(br, buf)
 		if err != nil {
 			log.Println("Payload read error:", err)
-			putBuffer(bufPtr)
+			PutBuffer(bufPtr)
 			return
 		}
 
 		if len(buf) < 2 {
 			log.Println("Payload too short for MsgType")
-			putBuffer(bufPtr)
+			PutBuffer(bufPtr)
 			continue
 		}
 
@@ -129,7 +129,7 @@ func handlePackets(conn net.Conn, br *wsutil.Reader, client *ClientConn) {
 
 		handleMessage(conn, msgType, payload, client)
 
-		putBuffer(bufPtr)
+		PutBuffer(bufPtr)
 	}
 }
 
