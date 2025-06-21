@@ -10,6 +10,7 @@ import (
 type Config struct {
 	POSTGRES_URI string
 	WS_PORT      string
+	GRPC_PORT    string
 }
 
 var AppConfig Config
@@ -22,5 +23,6 @@ func Load() {
 	AppConfig = Config{
 		POSTGRES_URI: os.Getenv("POSTGRES_URI"),
 		WS_PORT:      os.Getenv("WS_PORT"),
+		GRPC_PORT:    os.Getenv("GRPC_PORT"),
 	}
 }

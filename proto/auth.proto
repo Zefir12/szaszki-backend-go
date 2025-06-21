@@ -1,0 +1,25 @@
+syntax = "proto3";
+
+package auth;
+
+option go_package = "/grpc/stuff;auth";
+
+service AuthService {
+  rpc ValidateToken(TokenRequest) returns (TokenResponse);
+  rpc SendGoServerStats(GoServerStats) returns (Empty);
+}
+
+message Empty {}
+
+message GoServerStats {
+  int32 wsClientsConnected = 1;
+}
+
+message TokenRequest {
+  string token = 1;
+}
+
+message TokenResponse {
+  bool valid = 1;
+  int32 userId = 2;
+}
