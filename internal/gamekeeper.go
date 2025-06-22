@@ -24,7 +24,7 @@ func GetGameKeeper() *GameKeeper {
 	return keeper
 }
 
-func (g *GameKeeper) CreateGame(players []*ClientConn, mode uint16) *GameSession {
+func (g *GameKeeper) CreateGame(players []*Client, mode uint16) *GameSession {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 

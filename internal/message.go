@@ -39,7 +39,7 @@ var ClientCmds = struct {
 	SearchingForGame: 3,
 }
 
-func handleMessage(conn net.Conn, msgType MsgType, payload []byte, client *ClientConn) {
+func handleMessage(msgType MsgType, payload []byte, client *Client) {
 	switch msgType {
 	case ClientCmds.Pong:
 		//connection alive
@@ -73,14 +73,14 @@ func WriteMsgToSingleConn(conn net.Conn, msgType MsgType, payload []byte) error 
 	return writer.Flush()
 }
 
-func (c *ClientConn) WriteMsg(msgType MsgType, payload []byte) error {
+func (c *Client) WriteMsg(msgType MsgType, payload []byte) error {
 	c.Mu.Lock()
 	defer c.Mu.Unlock()
 
 	for id, conn := range c.Conns {
 		err := WriteMsgToSingleConn(conn, msgType, payload)
 		if err != nil {
-			log.Printf("WriteMsg error on connection %s: %v", id, err)
+			log.Printf("WriteMsg error on connection %d: %v", id, err)
 		}
 	}
 	return nil

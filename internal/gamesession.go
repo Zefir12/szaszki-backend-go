@@ -8,7 +8,7 @@ import (
 // GameSession holds game-specific state
 type GameSession struct {
 	ID      int
-	Players []*ClientConn
+	Players []*Client
 	Mode    uint16
 	// You can add board, turn, scores, etc.
 }
@@ -42,7 +42,7 @@ func (g *GameSession) Run() {
 	}
 
 	for _, player := range g.Players {
-		err := WriteMsg(player.Conns, ServerCmds.GameStarted, data) // adapt WriteMsg to send data bytes
+		err := player.WriteMsg(ServerCmds.GameStarted, data) // adapt WriteMsg to send data bytes
 		if err != nil {
 			log.Printf("error sending message to player %d: %v", player.UserID, err)
 		}

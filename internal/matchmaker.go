@@ -7,7 +7,7 @@ import (
 )
 
 type Matchmaker struct {
-	queue      chan *ClientConn
+	queue      chan *Client
 	quit       chan struct{}
 	mode       uint16
 	acceptChan chan playerResponse
@@ -16,15 +16,15 @@ type Matchmaker struct {
 }
 
 type pendingMatch struct {
-	players  []*ClientConn
+	players  []*Client
 	timer    *time.Timer
-	accepted map[*ClientConn]bool
+	accepted map[*Client]bool
 	mode     uint16
 }
 
 type playerResponse struct {
 	matchID int
-	client  *ClientConn
+	client  *Client
 	accept  bool
 }
 
@@ -35,7 +35,7 @@ func InitAllMatchmakers(bufferSize int) {
 	modes := GetAllModes()
 	for _, mode := range modes {
 		m := &Matchmaker{
-			queue:      make(chan *ClientConn, bufferSize),
+			queue:      make(chan *Client, bufferSize),
 			quit:       make(chan struct{}),
 			mode:       mode,
 			acceptChan: make(chan playerResponse),
@@ -46,7 +46,7 @@ func InitAllMatchmakers(bufferSize int) {
 	}
 }
 
-func EnqueuePlayerForMode(client *ClientConn, mode uint16) {
+func EnqueuePlayerForMode(client *Client, mode uint16) {
 	m, ok := matchmakers[mode]
 	if !ok {
 		log.Printf("No matchmaker for mode %d", mode)
@@ -55,7 +55,7 @@ func EnqueuePlayerForMode(client *ClientConn, mode uint16) {
 	m.Enqueue(client)
 }
 
-func (m *Matchmaker) Enqueue(client *ClientConn) {
+func (m *Matchmaker) Enqueue(client *Client) {
 	select {
 	case m.queue <- client:
 		log.Printf("Client %d entered matchmaking queue", client.UserID)
@@ -65,7 +65,7 @@ func (m *Matchmaker) Enqueue(client *ClientConn) {
 }
 
 func (m *Matchmaker) loop() {
-	waiting := make([]*ClientConn, 0)
+	waiting := make([]*Client, 0)
 	matchIDCounter := 0
 
 	for {
@@ -82,8 +82,8 @@ func (m *Matchmaker) loop() {
 				matchID := matchIDCounter
 
 				pm := &pendingMatch{
-					players:  []*ClientConn{p1, p2},
-					accepted: make(map[*ClientConn]bool),
+					players:  []*Client{p1, p2},
+					accepted: make(map[*Client]bool),
 					mode:     m.mode,
 				}
 				pm.timer = time.AfterFunc(15*time.Second, func() {
@@ -95,7 +95,7 @@ func (m *Matchmaker) loop() {
 				m.matchLock.Unlock()
 
 				for _, player := range pm.players {
-					WriteMsg(player.Conns, ServerCmds.GameFound, nil)
+					player.WriteMsg(ServerCmds.GameFound, nil)
 				}
 			}
 
@@ -108,7 +108,7 @@ func (m *Matchmaker) loop() {
 	}
 }
 
-func (m *Matchmaker) handlePlayerResponse(matchID int, client *ClientConn, accept bool) {
+func (m *Matchmaker) handlePlayerResponse(matchID int, client *Client, accept bool) {
 	m.matchLock.Lock()
 	defer m.matchLock.Unlock()
 
@@ -124,7 +124,7 @@ func (m *Matchmaker) handlePlayerResponse(matchID int, client *ClientConn, accep
 		delete(m.pending, matchID)
 		for _, p := range pm.players {
 			if p != client {
-				WriteMsg(p.Conns, ServerCmds.GameDeclined, nil)
+				p.WriteMsg(ServerCmds.GameDeclined, nil)
 				m.Enqueue(p)
 			}
 		}
@@ -155,7 +155,7 @@ func (m *Matchmaker) handleTimeout(matchID int) {
 	delete(m.pending, matchID)
 
 	for _, p := range pm.players {
-		WriteMsg(p.Conns, ServerCmds.GameSearchTimeout, nil)
+		p.WriteMsg(ServerCmds.GameSearchTimeout, nil)
 		// Optionally requeue players to try matching again
 		m.Enqueue(p)
 	}
@@ -165,7 +165,7 @@ func (m *Matchmaker) Stop() {
 	close(m.quit)
 }
 
-func (m *Matchmaker) startGame(players []*ClientConn) {
+func (m *Matchmaker) startGame(players []*Client) {
 	log.Printf("Starting game with players: %d and %d", players[0].UserID, players[1].UserID)
 	GetGameKeeper().CreateGame(players, m.mode)
 }

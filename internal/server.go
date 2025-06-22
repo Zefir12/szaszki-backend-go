@@ -55,7 +55,7 @@ func handleConn(conn net.Conn) {
 	br := wsutil.NewReader(conn, ws.StateServerSide)
 
 	var userID int32
-	var client *ClientConn
+	var client *Client
 
 	done := make(chan struct{})
 
@@ -122,7 +122,7 @@ func handleConn(conn net.Conn) {
 			}
 			userID = uid
 
-			// Add or get shared ClientConn for this user
+			// Add or get shared Client for this user
 			client = GetClientOrCreate(userID)
 			client.AddConn(connID, conn)
 
@@ -140,7 +140,7 @@ func handleConn(conn net.Conn) {
 		}
 
 		// Now handle other messages with the shared client instance
-		handleMessage(conn, msgType, payload, client)
+		handleMessage(msgType, payload, client)
 
 		PutBuffer(bufPtr)
 	}
