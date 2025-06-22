@@ -7,12 +7,11 @@
 package auth
 
 import (
+	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
+	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
 	sync "sync"
 	unsafe "unsafe"
-
-	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
-	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 )
 
 const (
@@ -149,7 +148,7 @@ func (x *TokenRequest) GetToken() string {
 type TokenResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Valid         bool                   `protobuf:"varint,1,opt,name=valid,proto3" json:"valid,omitempty"`
-	UserId        int32                  `protobuf:"varint,2,opt,name=userId,proto3" json:"userId,omitempty"`
+	UserId        uint32                 `protobuf:"varint,2,opt,name=userId,proto3" json:"userId,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -191,7 +190,7 @@ func (x *TokenResponse) GetValid() bool {
 	return false
 }
 
-func (x *TokenResponse) GetUserId() int32 {
+func (x *TokenResponse) GetUserId() uint32 {
 	if x != nil {
 		return x.UserId
 	}
@@ -210,7 +209,7 @@ const file_proto_auth_proto_rawDesc = "" +
 	"\x05token\x18\x01 \x01(\tR\x05token\"=\n" +
 	"\rTokenResponse\x12\x14\n" +
 	"\x05valid\x18\x01 \x01(\bR\x05valid\x12\x16\n" +
-	"\x06userId\x18\x02 \x01(\x05R\x06userId2~\n" +
+	"\x06userId\x18\x02 \x01(\rR\x06userId2~\n" +
 	"\vAuthService\x128\n" +
 	"\rValidateToken\x12\x12.auth.TokenRequest\x1a\x13.auth.TokenResponse\x125\n" +
 	"\x11SendGoServerStats\x12\x13.auth.GoServerStats\x1a\v.auth.EmptyB\x12Z\x10/grpc/stuff;authb\x06proto3"

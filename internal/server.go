@@ -6,17 +6,16 @@ import (
 	"log"
 	"net"
 	"sync"
-	"time"
 
 	"github.com/gobwas/ws"
 	"github.com/gobwas/ws/wsutil"
 	authclient "github.com/zefir/szaszki-go-backend/grpc"
 )
 
-var connCounter int64 = 0
+var connCounter uint64 = 0
 var connCounterMu sync.Mutex
 
-func generateConnID() int64 {
+func generateConnID() uint64 {
 	connCounterMu.Lock()
 	defer connCounterMu.Unlock()
 	connCounter++
@@ -54,29 +53,29 @@ func handleConn(conn net.Conn) {
 
 	br := wsutil.NewReader(conn, ws.StateServerSide)
 
-	var userID int32
+	var userID uint32
 	var client *Client
 
-	done := make(chan struct{})
+	// done := make(chan struct{})
 
-	// Ping goroutine
-	go func() {
-		ticker := time.NewTicker(5 * time.Second)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ticker.C:
-				err := WriteMsgToSingleConn(conn, ServerCmds.Ping, nil)
-				if err != nil {
-					log.Println("Ping error:", err)
-					close(done)
-					return
-				}
-			case <-done:
-				return
-			}
-		}
-	}()
+	// // Ping goroutine
+	// go func() {
+	// 	ticker := time.NewTicker(5 * time.Second)
+	// 	defer ticker.Stop()
+	// 	for {
+	// 		select {
+	// 		case <-ticker.C:
+	// 			err := WriteMsgToSingleConn(conn, ServerCmds.Ping, nil)
+	// 			if err != nil {
+	// 				log.Println("Ping error:", err)
+	// 				close(done)
+	// 				return
+	// 			}
+	// 		case <-done:
+	// 			return
+	// 		}
+	// 	}
+	// }()
 
 	for {
 		hdr, err := br.NextFrame()
@@ -112,12 +111,13 @@ func handleConn(conn net.Conn) {
 		payload := buf[2:]
 
 		// Handle auth message specially
-		if userID == 0 && msgType == ClientCmds.RcvMsgAuth {
+		if userID == 0 && msgType == ClientCmds.Auth {
 			token := string(payload)
 			valid, uid, err := authclient.ValidateToken(token)
 			if err != nil || !valid {
 				log.Println("Invalid token:", err)
 				conn.Close()
+				closeConn(client, connID)
 				break
 			}
 			userID = uid
@@ -136,6 +136,7 @@ func handleConn(conn net.Conn) {
 		if userID == 0 {
 			// Not authenticated and not auth message, close connection
 			conn.Close()
+			closeConn(client, connID)
 			break
 		}
 
@@ -144,13 +145,19 @@ func handleConn(conn net.Conn) {
 
 		PutBuffer(bufPtr)
 	}
+	closeConn(client, connID)
+}
 
-	// Connection closed, remove this connection from the client's map
+func closeConn(client *Client, connID uint64) { // Connection closed, remove this connection from the client's map
 	if client != nil {
-		client.RemoveConn(connID)
-		if client.ConnCount() == 0 {
-			RemoveClient(userID)
+		remainingConns := client.RemoveConn(connID)
+		if remainingConns <= 0 {
+			for _, m := range matchmakers {
+				m.removeClientChan <- client
+			}
+			RemoveClient(client.UserID)
 		}
+		log.Println(client, remainingConns)
 	}
 }
 

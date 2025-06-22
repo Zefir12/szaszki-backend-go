@@ -31,12 +31,18 @@ var ServerCmds = struct {
 
 var ClientCmds = struct {
 	Pong             MsgType
-	RcvMsgAuth       MsgType
+	Auth             MsgType
 	SearchingForGame MsgType
+	AcceptedGame     MsgType
+	DeclinedGame     MsgType
+	CloseSocket      MsgType
 }{
 	Pong:             1,
-	RcvMsgAuth:       2,
+	Auth:             2,
 	SearchingForGame: 3,
+	AcceptedGame:     4,
+	DeclinedGame:     5,
+	CloseSocket:      61500,
 }
 
 func handleMessage(msgType MsgType, payload []byte, client *Client) {
@@ -46,12 +52,19 @@ func handleMessage(msgType MsgType, payload []byte, client *Client) {
 	case ClientCmds.SearchingForGame:
 		gameMode := binary.BigEndian.Uint16(payload)
 		log.Println("user with id", client.UserID, "wants to find game with type:", gameMode)
-		matchmaker, ok := matchmakers[gameMode]
-		if !ok {
-			log.Printf("No matchmaker for mode %d", gameMode)
-			return
-		}
-		matchmaker.Enqueue(client)
+		EnqueuePlayerForMode(client, gameMode)
+	case ClientCmds.AcceptedGame:
+		matchID := binary.BigEndian.Uint32(payload[0:4])
+		mode := binary.BigEndian.Uint16(payload[4:6])
+		AcceptMatch(client, matchID, true, mode)
+		log.Println("match accepted", matchID, mode, client.UserID)
+	case ClientCmds.DeclinedGame:
+		matchID := binary.BigEndian.Uint32(payload[0:4])
+		mode := binary.BigEndian.Uint16(payload[4:6])
+		AcceptMatch(client, matchID, false, mode)
+		log.Println("match declined", matchID, mode, client.UserID)
+	case ClientCmds.CloseSocket:
+
 	default:
 	}
 }

@@ -22,7 +22,7 @@ func Init(addr string) {
 }
 
 // ValidateToken calls gRPC ValidateToken method
-func ValidateToken(token string) (bool, int32, error) {
+func ValidateToken(token string) (bool, uint32, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
