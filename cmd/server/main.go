@@ -33,12 +33,13 @@ func main() {
 	authclient.Init("localhost:" + config.AppConfig.GRPC_PORT)
 
 	internal.InitGameKeeper()
-	internal.InitMatchmaker()
+	internal.InitAllMatchmakers(100)
 	fmt.Println("Server running on port " + config.AppConfig.WS_PORT)
 	err := internal.ListenAndServe(":" + config.AppConfig.WS_PORT)
 	if err != nil {
 		log.Fatal("WebSocket server error:", err)
 	}
+	fmt.Println("Server closeing")
 }
 
 // protoc --go_out=. --go-grpc_out=. proto/auth.proto

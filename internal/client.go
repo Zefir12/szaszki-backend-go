@@ -6,9 +6,10 @@ import (
 )
 
 type ClientConn struct {
-	Conn             net.Conn
+	Conns            map[int64]net.Conn
 	UserID           int32
 	CurrentlyPlaying bool
+	CurrentlyInQueue bool
 	Mu               sync.Mutex
 }
 
@@ -17,10 +18,31 @@ var (
 	clientsMu sync.RWMutex
 )
 
-func AddClient(userID int32, conn net.Conn) {
+func (c *ClientConn) AddConn(id int64, conn net.Conn) {
+	c.Mu.Lock()
+	defer c.Mu.Unlock()
+	if c.Conns == nil {
+		c.Conns = make(map[int64]net.Conn)
+	}
+	c.Conns[id] = conn
+}
+
+func AddClient(userID int32, connID int64, conn net.Conn) {
 	clientsMu.Lock()
 	defer clientsMu.Unlock()
-	clients[userID] = &ClientConn{Conn: conn, UserID: userID}
+
+	if client, ok := clients[userID]; ok {
+		// Client exists, add new connection
+		client.AddConn(connID, conn)
+	} else {
+		// Create new client and add connection
+		c := &ClientConn{
+			UserID: userID,
+			Conns:  make(map[int64]net.Conn),
+		}
+		c.Conns[connID] = conn
+		clients[userID] = c
+	}
 }
 
 func GetClient(userID int32) (*ClientConn, bool) {

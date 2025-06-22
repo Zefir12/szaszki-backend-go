@@ -24,39 +24,24 @@ func GetGameKeeper() *GameKeeper {
 	return keeper
 }
 
-func playerIDs(players []*ClientConn) []int32 {
-	ids := make([]int32, len(players))
-	for i, p := range players {
-		ids[i] = p.UserID
-	}
-	return ids
-}
-
-func (g *GameKeeper) CreateGame(players []*ClientConn) *GameSession {
+func (g *GameKeeper) CreateGame(players []*ClientConn, mode uint16) *GameSession {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 
-	game := &GameSession{
+	gamesession := &GameSession{
 		ID:      g.nextID,
 		Players: players,
+		Mode:    mode,
 	}
 
-	g.games[g.nextID] = game
+	g.games[g.nextID] = gamesession
 	g.nextID++
 
-	log.Printf("Game %d created with players: %v", game.ID, playerIDs(players))
-
-	// Mark players as in game and notify them
-	for _, player := range players {
-		player.CurrentlyPlaying = true
-		WriteMsg(player.Conn, ServerCmds.GameFound, nil)
-
-	}
-
+	log.Printf("Game %d created with players: %v", gamesession.ID, players)
 	// Start game loop in separate goroutine
-	go game.Run()
+	go gamesession.Run()
 
-	return game
+	return gamesession
 }
 
 func (g *GameKeeper) GetGame(id int) (*GameSession, bool) {

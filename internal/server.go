@@ -5,12 +5,23 @@ import (
 	"io"
 	"log"
 	"net"
-	"strings"
+	"sync"
 	"time"
 
 	"github.com/gobwas/ws"
 	"github.com/gobwas/ws/wsutil"
+	authclient "github.com/zefir/szaszki-go-backend/grpc"
 )
+
+var connCounter int64 = 0
+var connCounterMu sync.Mutex
+
+func generateConnID() int64 {
+	connCounterMu.Lock()
+	defer connCounterMu.Unlock()
+	connCounter++
+	return connCounter
+}
 
 func ListenAndServe(addr string) error {
 	ln, err := net.Listen("tcp", addr)
@@ -32,36 +43,30 @@ func ListenAndServe(addr string) error {
 }
 
 func handleConn(conn net.Conn) {
+	connID := generateConnID() // e.g., UUID
+
 	_, err := ws.Upgrade(conn)
 	if err != nil {
 		log.Println("WebSocket upgrade error:", err)
 		conn.Close()
 		return
 	}
-	defer conn.Close()
 
 	br := wsutil.NewReader(conn, ws.StateServerSide)
 
-	client := &ClientConn{
-		Conn:   conn,
-		UserID: 0,
-	}
-	defer func() {
-		if client.UserID != 0 {
-			RemoveClient(client.UserID)
-		}
-	}()
+	var userID int32
+	var client *ClientConn
 
 	done := make(chan struct{})
 
-	// Ping sender goroutine
+	// Ping goroutine
 	go func() {
 		ticker := time.NewTicker(5 * time.Second)
 		defer ticker.Stop()
 		for {
 			select {
 			case <-ticker.C:
-				err := WriteMsg(conn, ServerCmds.Ping, nil)
+				err := WriteMsgToSingleConn(conn, ServerCmds.Ping, nil)
 				if err != nil {
 					log.Println("Ping error:", err)
 					close(done)
@@ -73,30 +78,17 @@ func handleConn(conn net.Conn) {
 		}
 	}()
 
-	handlePackets(conn, br, client)
-
-}
-
-func handlePackets(conn net.Conn, br *wsutil.Reader, client *ClientConn) {
 	for {
 		hdr, err := br.NextFrame()
 		if err != nil {
-			if err == io.EOF {
-				return
-			}
-			if strings.Contains(err.Error(), "wsarecv") {
-				return
-			}
-			log.Println("Frame read error:", err)
-			return
+			// handle errors and cleanup
+			break
 		}
 
-		// Only handle binary frames
 		if hdr.OpCode != ws.OpBinary {
-			// Discard unwanted frame by reading and discarding data
+			// discard non-binary frames
 			if _, err := io.CopyN(io.Discard, br, int64(hdr.Length)); err != nil {
-				log.Println("Discard error:", err)
-				return
+				break
 			}
 			continue
 		}
@@ -104,22 +96,14 @@ func handlePackets(conn net.Conn, br *wsutil.Reader, client *ClientConn) {
 		size := int(hdr.Length)
 		bufPtr := GetBufferForSize(size)
 		buf := *bufPtr
-		if size > cap(buf) {
-			log.Printf("Frame too large: %d bytes", size)
-			PutBuffer(bufPtr)
-			return
-		}
-
 		buf = buf[:size]
 		_, err = io.ReadFull(br, buf)
 		if err != nil {
-			log.Println("Payload read error:", err)
 			PutBuffer(bufPtr)
-			return
+			break
 		}
 
 		if len(buf) < 2 {
-			log.Println("Payload too short for MsgType")
 			PutBuffer(bufPtr)
 			continue
 		}
@@ -127,9 +111,46 @@ func handlePackets(conn net.Conn, br *wsutil.Reader, client *ClientConn) {
 		msgType := MsgType(binary.BigEndian.Uint16(buf[0:2]))
 		payload := buf[2:]
 
+		// Handle auth message specially
+		if userID == 0 && msgType == ClientCmds.RcvMsgAuth {
+			token := string(payload)
+			valid, uid, err := authclient.ValidateToken(token)
+			if err != nil || !valid {
+				log.Println("Invalid token:", err)
+				conn.Close()
+				break
+			}
+			userID = uid
+
+			// Add or get shared ClientConn for this user
+			client = GetClientOrCreate(userID)
+			client.AddConn(connID, conn)
+
+			// Send auth success
+			WriteMsgToSingleConn(conn, ServerCmds.ClientAuthenticated, nil)
+
+			PutBuffer(bufPtr)
+			continue
+		}
+
+		if userID == 0 {
+			// Not authenticated and not auth message, close connection
+			conn.Close()
+			break
+		}
+
+		// Now handle other messages with the shared client instance
 		handleMessage(conn, msgType, payload, client)
 
 		PutBuffer(bufPtr)
+	}
+
+	// Connection closed, remove this connection from the client's map
+	if client != nil {
+		client.RemoveConn(connID)
+		if client.ConnCount() == 0 {
+			RemoveClient(userID)
+		}
 	}
 }
 
