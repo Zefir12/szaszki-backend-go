@@ -31,11 +31,11 @@ func main() {
 	var (
 		serverAddr     = flag.String("addr", "localhost:4411", "WebSocket server address")
 		numClients     = flag.Int("clients", 30000, "Number of clients to spawn")
-		minMsgFreqMs   = flag.Int("minfreq", 5, "Minimum milliseconds between client messages")
+		minMsgFreqMs   = flag.Int("minfreq", 5000, "Minimum milliseconds between client messages")
 		maxMsgFreqMs   = flag.Int("maxfreq", 20000, "Maximum milliseconds between client messages")
-		disconnectRate = flag.Float64("disrate", 0.01, "Chance per message interval to disconnect")
+		disconnectRate = flag.Float64("disrate", 0.00, "Chance per message interval to disconnect")
 		reconnectDelay = flag.Int("reconndelay", 3000, "Milliseconds before reconnecting after disconnect")
-		runDuration    = flag.Int("duration", 5, "Test run duration in seconds")
+		runDuration    = flag.Int("duration", 15, "Test run duration in seconds")
 	)
 	flag.Parse()
 

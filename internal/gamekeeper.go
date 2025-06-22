@@ -6,8 +6,8 @@ import (
 )
 
 type GameKeeper struct {
-	games  map[int]*GameSession
-	nextID int
+	games  map[uint32]*GameSession
+	nextID uint32
 	mu     sync.Mutex
 }
 
@@ -15,7 +15,7 @@ var keeper *GameKeeper
 
 func InitGameKeeper() {
 	keeper = &GameKeeper{
-		games:  make(map[int]*GameSession),
+		games:  make(map[uint32]*GameSession),
 		nextID: 1,
 	}
 }
@@ -44,7 +44,7 @@ func (g *GameKeeper) CreateGame(players []*Client, mode uint16) *GameSession {
 	return gamesession
 }
 
-func (g *GameKeeper) GetGame(id int) (*GameSession, bool) {
+func (g *GameKeeper) GetGame(id uint32) (*GameSession, bool) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	game, exists := g.games[id]
