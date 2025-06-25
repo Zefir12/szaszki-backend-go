@@ -42,7 +42,7 @@ func ListenAndServe(addr string) error {
 }
 
 func handleConn(conn net.Conn) {
-	connID := generateConnID() // e.g., UUID
+	connID := generateConnID()
 
 	_, err := ws.Upgrade(conn)
 	if err != nil {
@@ -55,27 +55,6 @@ func handleConn(conn net.Conn) {
 
 	var userID uint32
 	var client *Client
-
-	// done := make(chan struct{})
-
-	// // Ping goroutine
-	// go func() {
-	// 	ticker := time.NewTicker(5 * time.Second)
-	// 	defer ticker.Stop()
-	// 	for {
-	// 		select {
-	// 		case <-ticker.C:
-	// 			err := WriteMsgToSingleConn(conn, ServerCmds.Ping, nil)
-	// 			if err != nil {
-	// 				log.Println("Ping error:", err)
-	// 				close(done)
-	// 				return
-	// 			}
-	// 		case <-done:
-	// 			return
-	// 		}
-	// 	}
-	// }()
 
 	for {
 		hdr, err := br.NextFrame()
@@ -152,9 +131,13 @@ func closeConn(client *Client, connID uint64) { // Connection closed, remove thi
 	if client != nil {
 		remainingConns := client.RemoveConn(connID)
 		if remainingConns <= 0 {
-			for _, m := range matchmakers {
-				m.removeClientChan <- client
+			client.Mu.Lock()
+			for mode, ok := range client.QueuedInModes {
+				if ok {
+					matchmakers[mode].removeClientChan <- client //wyjebać z kolejek clienta
+				}
 			}
+			client.Mu.Unlock()
 			RemoveClient(client.UserID)
 		}
 		log.Println(client, remainingConns)
@@ -194,3 +177,5 @@ func closeConn(client *Client, connID uint64) { // Connection closed, remove thi
 // 		handleMessage(conn, msgType, payload)
 // 	}
 // }
+
+//https://go101.org/article/channel.html

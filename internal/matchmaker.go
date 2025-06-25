@@ -9,7 +9,6 @@ import (
 
 type Matchmaker struct {
 	queue            chan *Client
-	quit             chan struct{}
 	mode             uint16
 	acceptChan       chan playerResponse
 	removeClientChan chan *Client
@@ -38,13 +37,102 @@ func InitAllMatchmakers(bufferSize int) {
 	for _, mode := range modes {
 		m := &Matchmaker{
 			queue:      make(chan *Client, bufferSize),
-			quit:       make(chan struct{}),
 			mode:       mode,
 			acceptChan: make(chan playerResponse),
 			pending:    make(map[uint32]*pendingMatch),
 		}
 		matchmakers[mode] = m
 		go m.loop()
+		go m.matchmakingLoop()
+	}
+}
+
+func (m *Matchmaker) matchmakingLoop() {
+	matchIDCounter := uint32(0)
+	waitingList := make([]*Client, 0)
+
+	for {
+		next := <-m.queue // blocks until someone is queued
+		waitingList = append(waitingList, next)
+
+	Drain: // Drain any other waiting players (non-blocking)
+		for i := 1; i < 99; i++ {
+			select {
+			case p := <-m.queue:
+				waitingList = append(waitingList, p)
+			default:
+				break Drain
+			}
+		}
+
+		filtered := waitingList[:0] // reuse underlying array to reduce allocations
+
+		for i := 0; i < len(waitingList); {
+			p1 := waitingList[i]
+			i++
+
+			// Drop disconnected player
+			if len(p1.Conns) == 0 {
+				continue
+			}
+
+			// Not enough players left for a match
+			if i >= len(waitingList) {
+				// Keep the leftover connected player
+				filtered = append(filtered, p1)
+				break
+			}
+
+			p2 := waitingList[i]
+			i++
+
+			// Drop disconnected second player and push first back into filtered list
+			if len(p2.Conns) == 0 {
+				filtered = append(filtered, p1)
+				continue
+			}
+
+			// ✅ Both connected: create match
+			log.Println("Matched", p1, "vs", p2)
+
+			// Remove from their queues
+			p1.Mu.Lock()
+			p1.RemoveQueuedMode(m.mode)
+			p1.Mu.Unlock()
+
+			p2.Mu.Lock()
+			p2.RemoveQueuedMode(m.mode)
+			p2.Mu.Unlock()
+
+			matchIDCounter++
+			matchID := matchIDCounter
+
+			pm := &pendingMatch{
+				players:  []*Client{p1, p2},
+				accepted: make(map[*Client]bool),
+				mode:     m.mode,
+			}
+
+			m.matchLock.Lock()
+			m.pending[matchID] = pm
+			m.matchLock.Unlock()
+
+			pm.timer = time.AfterFunc(10*time.Second, func() {
+				m.handleTimeout(matchID)
+			})
+
+			matchIdBytes := make([]byte, 6)
+			binary.BigEndian.PutUint32(matchIdBytes[0:4], uint32(matchID))
+			binary.BigEndian.PutUint16(matchIdBytes[4:6], uint16(pm.mode))
+
+			for _, player := range pm.players {
+				player.WriteMsg(ServerCmds.GameFound, matchIdBytes)
+			}
+		}
+
+		waitingList = filtered
+		// Sleep before the next round
+		time.Sleep(50 * time.Millisecond)
 	}
 }
 
@@ -67,69 +155,13 @@ func (m *Matchmaker) Enqueue(client *Client) {
 }
 
 func (m *Matchmaker) loop() {
-	waiting := make([]*Client, 0)
-	matchIDCounter := uint32(0)
-
 	for {
 		select {
-		case client := <-m.queue:
-			if client.IsQueuedInMode(m.mode) {
-				log.Println("user already searching cant eneter another queue", client.UserID)
-				continue
-			}
-			waiting = append(waiting, client)
-			client.AddQueuedMode(m.mode)
-			if len(waiting) >= 2 {
-				p1 := waiting[0]
-				p2 := waiting[1]
-				waiting = waiting[2:]
-				p1.RemoveQueuedMode(m.mode)
-				p2.RemoveQueuedMode(m.mode)
-
-				matchIDCounter++
-				matchID := matchIDCounter
-
-				pm := &pendingMatch{
-					players:  []*Client{p1, p2},
-					accepted: make(map[*Client]bool),
-					mode:     m.mode,
-				}
-				pm.timer = time.AfterFunc(10*time.Second, func() {
-					m.handleTimeout(matchID)
-				})
-
-				m.matchLock.Lock()
-				m.pending[matchID] = pm
-				m.matchLock.Unlock()
-
-				matchIdBytes := make([]byte, 6) // 4 bytes for uint32 + 2 bytes for uint16
-
-				binary.BigEndian.PutUint32(matchIdBytes[0:4], uint32(matchID))
-				binary.BigEndian.PutUint16(matchIdBytes[4:6], uint16(pm.mode))
-				log.Printf("Sending matchID bytes: %v", matchIdBytes)
-
-				for _, player := range pm.players {
-					player.WriteMsg(ServerCmds.GameFound, matchIdBytes)
-				}
-			}
-
 		case resp := <-m.acceptChan:
 			m.handlePlayerResponse(resp.matchID, resp.client, resp.accept)
 
 		case clientToRemove := <-m.removeClientChan:
 			log.Println("Removing client from waiting:", clientToRemove)
-			waiting = removeClientFromWaiting(waiting, clientToRemove)
-			clientToRemove.RemoveQueuedMode(m.mode)
-			// for _, c := range waiting {
-			// 	if c == clientToRemove {
-			// 		waiting = removeClientFromWaiting(waiting, clientToRemove)
-			// 		clientToRemove.CurrentlyInQueue = false
-			// 		break // stop looping after we find it
-			// 	}
-			//}
-
-		case <-m.quit:
-			return
 		}
 	}
 }
@@ -174,9 +206,6 @@ func (m *Matchmaker) handlePlayerResponse(matchID uint32, client *Client, accept
 		for _, p := range pm.players {
 			if p != client {
 				p.WriteMsg(ServerCmds.GameDeclined, nil)
-				if pm.accepted[p] {
-					m.Enqueue(p)
-				}
 			}
 		}
 		return
@@ -208,14 +237,7 @@ func (m *Matchmaker) handleTimeout(matchID uint32) {
 	for _, p := range pm.players {
 		p.WriteMsg(ServerCmds.GameSearchTimeout, nil)
 		// Optionally requeue players to try matching again
-		if pm.accepted[p] {
-			m.Enqueue(p)
-		}
 	}
-}
-
-func (m *Matchmaker) Stop() {
-	close(m.quit)
 }
 
 func (m *Matchmaker) startGame(players []*Client) {

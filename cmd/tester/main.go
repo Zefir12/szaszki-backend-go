@@ -2,10 +2,8 @@ package main
 
 import (
 	"context"
-	"flag"
 	"log"
 	"math/rand"
-	"sync"
 	"time"
 
 	"net"
@@ -28,38 +26,64 @@ var messageTypes = []MessageType{
 }
 
 func main() {
-	var (
-		serverAddr     = flag.String("addr", "localhost:4411", "WebSocket server address")
-		numClients     = flag.Int("clients", 30000, "Number of clients to spawn")
-		minMsgFreqMs   = flag.Int("minfreq", 5000, "Minimum milliseconds between client messages")
-		maxMsgFreqMs   = flag.Int("maxfreq", 20000, "Maximum milliseconds between client messages")
-		disconnectRate = flag.Float64("disrate", 0.00, "Chance per message interval to disconnect")
-		reconnectDelay = flag.Int("reconndelay", 3000, "Milliseconds before reconnecting after disconnect")
-		runDuration    = flag.Int("duration", 15, "Test run duration in seconds")
-	)
-	flag.Parse()
-
-	if *minMsgFreqMs > *maxMsgFreqMs {
-		log.Fatalf("minfreq cannot be greater than maxfreq")
+	c := make(chan int16, 1000)
+	for i := 0; i < 420; i++ {
+		c <- int16(i)
 	}
 
-	log.Printf("Starting tester with %d clients, msg freq between %dms and %dms, disconnect rate %.2f, reconnect delay %dms",
-		*numClients, *minMsgFreqMs, *maxMsgFreqMs, *disconnectRate, *reconnectDelay)
+	log.Println("start")
+	for {
+		log.Println("outer loop")
 
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(*runDuration)*time.Second)
-	defer cancel()
+	Loop:
+		for i := 0; i < 100; i++ {
+			select {
+			case item := <-c:
 
-	wg := &sync.WaitGroup{}
-	for i := 0; i < *numClients; i++ {
-		wg.Add(1)
-		go func(clientID int) {
-			defer wg.Done()
-			clientLoop(ctx, *serverAddr, clientID, *minMsgFreqMs, *maxMsgFreqMs, *disconnectRate, *reconnectDelay)
-		}(i)
+				log.Println("processing: ", item)
+			default:
+				log.Println("breaking...")
+				break Loop
+			}
+		}
+
+		log.Println("sleeping...")
+		time.Sleep(time.Millisecond * 50)
+
 	}
 
-	wg.Wait()
-	log.Println("Tester finished.")
+	// var (
+	// 	serverAddr     = flag.String("addr", "localhost:4411", "WebSocket server address")
+	// 	numClients     = flag.Int("clients", 30000, "Number of clients to spawn")
+	// 	minMsgFreqMs   = flag.Int("minfreq", 5000, "Minimum milliseconds between client messages")
+	// 	maxMsgFreqMs   = flag.Int("maxfreq", 20000, "Maximum milliseconds between client messages")
+	// 	disconnectRate = flag.Float64("disrate", 0.00, "Chance per message interval to disconnect")
+	// 	reconnectDelay = flag.Int("reconndelay", 3000, "Milliseconds before reconnecting after disconnect")
+	// 	runDuration    = flag.Int("duration", 15, "Test run duration in seconds")
+	// )
+	// flag.Parse()
+
+	// if *minMsgFreqMs > *maxMsgFreqMs {
+	// 	log.Fatalf("minfreq cannot be greater than maxfreq")
+	// }
+
+	// log.Printf("Starting tester with %d clients, msg freq between %dms and %dms, disconnect rate %.2f, reconnect delay %dms",
+	// 	*numClients, *minMsgFreqMs, *maxMsgFreqMs, *disconnectRate, *reconnectDelay)
+
+	// ctx, cancel := context.WithTimeout(context.Background(), time.Duration(*runDuration)*time.Second)
+	// defer cancel()
+
+	// wg := &sync.WaitGroup{}
+	// for i := 0; i < *numClients; i++ {
+	// 	wg.Add(1)
+	// 	go func(clientID int) {
+	// 		defer wg.Done()
+	// 		clientLoop(ctx, *serverAddr, clientID, *minMsgFreqMs, *maxMsgFreqMs, *disconnectRate, *reconnectDelay)
+	// 	}(i)
+	// }
+
+	// wg.Wait()
+	// log.Println("Tester finished.")
 }
 
 func clientLoop(ctx context.Context, addr string, clientID, minFreqMs, maxFreqMs int, disRate float64, reconDelayMs int) {

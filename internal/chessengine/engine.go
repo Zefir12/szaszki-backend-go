@@ -3,7 +3,6 @@ package chess
 import (
 	"math/bits"
 	"math/rand"
-	"time"
 )
 
 //https://en.wikipedia.org/wiki/Bitboard
@@ -14,6 +13,8 @@ const (
 	White = 0
 	Black = 1
 )
+
+const zobristSeed = 0xCAFEBABE
 
 const (
 	fileA Bitboard = 0x0101010101010101
@@ -35,6 +36,29 @@ const (
 	rank8 Bitboard = 0xFF00000000000000
 )
 
+var castlingRightsBySquare = [64]uint8{
+	^WQ, 0xFF, 0xFF, 0xFF, ^(WK | WQ), 0xFF, 0xFF, ^WK, // rank 1 (White)
+	0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, // rank 2
+	0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, // rank 3
+	0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, // rank 4
+	0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, // rank 5
+	0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, // rank 6
+	0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, // rank 7
+	^BQ, 0xFF, 0xFF, 0xFF, ^(BK | BQ), 0xFF, 0xFF, ^BK, // rank 8 (Black)
+}
+
+const (
+	WK uint8 = 1 << 0 // White kingside
+	WQ uint8 = 1 << 1 // White queenside
+	BK uint8 = 1 << 2 // Black kingside
+	BQ uint8 = 1 << 3 // Black queenside
+
+	WhiteToMove uint8 = 1 << 4
+)
+
+var knightMoves [64]Bitboard
+var kingMoves [64]Bitboard
+
 // for zobrist
 const (
 	Pawn = iota
@@ -48,16 +72,66 @@ const (
 var zobristTable [6][64]uint64
 var zobristEnPassant [64]uint64
 var zobristSideToMove uint64
+var zobristCastlingRights [2][2]uint64
+var zobristPieces [2][6][64]uint64 // [color][piece][square]
+var zobristCastling [16]uint64     // for all castling flag combinations
+
 var rng *rand.Rand
 
 // === Board Representation ===
 type Board struct {
 	Pawns, Knights, Bishops, Rooks, Queens, Kings [2]Bitboard
 	Occupied                                      [2]Bitboard
-	AllOccupied                                   Bitboard
-	EnPassantSquare                               int8 // -1 if none
-	SideToMove                                    int8
 	Hash                                          uint64
+	EnPassantSquare                               int8
+	Flags                                         uint8 // bitmask: 1 = WK, 2 = WQ, 4 = BK, 8 = BQ, 16 = WhiteToMove
+}
+
+func (b *Board) Clone() Board {
+	return *b // shallow copy
+}
+
+func init() {
+	for i := 0; i < 64; i++ {
+		knightMoves[i] = generateKnightMoves(i)
+		kingMoves[i] = generateKingMoves(i)
+	}
+	initZobrist()
+	initZobristExtended()
+}
+
+func initZobrist() {
+	rng = rand.New(rand.NewSource(zobristSeed))
+	for pieceType := 0; pieceType < 6; pieceType++ {
+		for sq := 0; sq < 64; sq++ {
+			zobristTable[pieceType][sq] = rng.Uint64()
+		}
+	}
+	for sq := 0; sq < 64; sq++ {
+		zobristEnPassant[sq] = rng.Uint64()
+	}
+	zobristSideToMove = rng.Uint64()
+	for color := 0; color < 2; color++ {
+		for side := 0; side < 2; side++ {
+			zobristCastlingRights[color][side] = rng.Uint64()
+		}
+	}
+}
+
+func initZobristExtended() {
+	// Initialize piece tables
+	for color := 0; color < 2; color++ {
+		for piece := 0; piece < 6; piece++ {
+			for sq := 0; sq < 64; sq++ {
+				zobristPieces[color][piece][sq] = rng.Uint64()
+			}
+		}
+	}
+
+	// Initialize castling combinations
+	for i := 0; i < 16; i++ {
+		zobristCastling[i] = rng.Uint64()
+	}
 }
 
 // === Bitboard Helpers ===
@@ -97,18 +171,6 @@ func PawnAttacks(pawns Bitboard, enemy Bitboard, isWhite bool) Bitboard {
 	left := (pawns >> 9) & ^fileH & enemy
 	right := (pawns >> 7) & ^fileA & enemy
 	return left | right
-}
-
-// === King & Knight Moves ===
-var knightMoves [64]Bitboard
-var kingMoves [64]Bitboard
-
-func init() {
-	for i := 0; i < 64; i++ {
-		knightMoves[i] = generateKnightMoves(i)
-		kingMoves[i] = generateKingMoves(i)
-		initZobrist() // ensure zobrist is ready
-	}
 }
 
 func generateKnightMoves(sq int) Bitboard {
@@ -164,10 +226,10 @@ func NewStartingPosition() Board {
 	b.Kings[Black] = 0x1000000000000000
 
 	// Occupied bitboards
-	b.Occupied[White] = b.Pawns[White] | b.Rooks[White] | b.Knights[White] | b.Bishops[White] | b.Queens[White] | b.Kings[White]
-	b.Occupied[Black] = b.Pawns[Black] | b.Rooks[Black] | b.Knights[Black] | b.Bishops[Black] | b.Queens[Black] | b.Kings[Black]
+	b.Occupied[White] = 0x000000000000FFFF // b.Pawns[White] | b.Rooks[White] | b.Knights[White] | b.Bishops[White] | b.Queens[White] | b.Kings[White]
+	b.Occupied[Black] = 0xFFFF000000000000 // b.Pawns[Black] | b.Rooks[Black] | b.Knights[Black] | b.Bishops[Black] | b.Queens[Black] | b.Kings[Black]
 
-	b.AllOccupied = b.Occupied[White] | b.Occupied[Black]
+	b.Flags |= WK | WQ | BK | BQ | WhiteToMove // enable all castling and set side to white
 
 	b.EnPassantSquare = -1
 	b.Hash = ComputeHash(&b)
@@ -207,12 +269,37 @@ func abs(x int) int {
 	return x
 }
 
-// === Legal Move Filtering ===
-func IsMoveLegal(board *Board, from, to int8) bool {
+func GetPieceType(board *Board, square int8, color int8) int {
+	bb := Bitboard(1) << square
+	if board.Pawns[color]&bb != 0 {
+		return Pawn
+	}
+	if board.Knights[color]&bb != 0 {
+		return Knight
+	}
+	if board.Bishops[color]&bb != 0 {
+		return Bishop
+	}
+	if board.Rooks[color]&bb != 0 {
+		return Rook
+	}
+	if board.Queens[color]&bb != 0 {
+		return Queen
+	}
+	if board.Kings[color]&bb != 0 {
+		return King
+	}
+	return -1 // No piece
+}
+
+func IsMoveLegal(board *Board, from, to, promoteTo int8) bool {
 	temp := *board // copy board
-	MakeMove(&temp, from, to)
-	kingSq := bits.TrailingZeros64(uint64(temp.Kings[board.SideToMove]))
-	return !IsSquareAttacked(kingSq, &temp, 1-board.SideToMove)
+	MakeMove(&temp, from, to, promoteTo)
+
+	attackerColor := int8((board.Flags&WhiteToMove)>>4) ^ 1
+
+	kingSq := bits.TrailingZeros64(uint64(temp.Kings[attackerColor]))
+	return !IsSquareAttacked(kingSq, &temp, 1-attackerColor)
 }
 
 func IsSquareAttacked(sq int, board *Board, attackerColor int8) bool {
@@ -226,98 +313,174 @@ func IsSquareAttacked(sq int, board *Board, attackerColor int8) bool {
 	if PawnAttacks(mask, board.Pawns[attackerColor], attackerColor == Black) != 0 {
 		return true
 	}
-	if slidingAttacks(sq, board.AllOccupied, directions["bishop"])&
+	allOccupied := board.Occupied[White] | board.Occupied[Black]
+	if slidingAttacks(sq, allOccupied, directions["bishop"])&
 		(board.Bishops[attackerColor]|board.Queens[attackerColor]) != 0 {
 		return true
 	}
-	if slidingAttacks(sq, board.AllOccupied, directions["rook"])&
+	if slidingAttacks(sq, allOccupied, directions["rook"])&
 		(board.Rooks[attackerColor]|board.Queens[attackerColor]) != 0 {
 		return true
 	}
 	return false
 }
 
-// === Make Move (With En Passant + Zobrist) ===
-func MakeMove(board *Board, from, to int8) {
+func MakeMove(board *Board, from, to int8, promoteTo int8) {
 	fromBB := Bitboard(1) << from
 	toBB := Bitboard(1) << to
-	color := board.SideToMove
+	color := int8((board.Flags&WhiteToMove)>>4) ^ 1
+	enemyColor := 1 - color
 
-	// Clear destination from enemy
-	board.Pawns[1-color] &^= toBB
-	board.Knights[1-color] &^= toBB
-	board.Bishops[1-color] &^= toBB
-	board.Rooks[1-color] &^= toBB
-	board.Queens[1-color] &^= toBB
-	board.Kings[1-color] &^= toBB
+	movingPiece := GetPieceType(board, from, color)
+	capturedPiece := GetPieceType(board, to, enemyColor)
 
-	// En passant capture
-	if board.EnPassantSquare == to && (board.Pawns[color]&fromBB) != 0 {
-		capSq := to + 8
+	newHash := board.Hash // Start incremental hash updates
+
+	// Remove moving piece from source
+	if movingPiece >= 0 {
+		newHash ^= zobristPieces[color][movingPiece][from]
+	}
+
+	// Remove captured piece if any
+	if capturedPiece >= 0 {
+		newHash ^= zobristPieces[enemyColor][capturedPiece][to]
+	}
+
+	// Remove old en passant
+	if board.EnPassantSquare >= 0 {
+		newHash ^= zobristEnPassant[board.EnPassantSquare]
+	}
+
+	// Remove old castling rights
+	newHash ^= zobristCastling[board.Flags&0x0F]
+
+	// Clear captured piece (only if there's a capture)
+	if capturedPiece >= 0 {
+		switch capturedPiece {
+		case Pawn:
+			board.Pawns[enemyColor] &^= toBB
+		case Knight:
+			board.Knights[enemyColor] &^= toBB
+		case Bishop:
+			board.Bishops[enemyColor] &^= toBB
+		case Rook:
+			board.Rooks[enemyColor] &^= toBB
+		case Queen:
+			board.Queens[enemyColor] &^= toBB
+		case King:
+			board.Kings[enemyColor] &^= toBB
+		}
+	}
+
+	// Handle en passant capture
+	if board.EnPassantSquare == to && movingPiece == Pawn {
+		capSq := to - 8
 		if color == White {
-			capSq = to - 8
+			capSq = to + 8
 		}
-		board.Pawns[1-color] &^= Bitboard(1) << capSq
+		board.Pawns[enemyColor] &^= Bitboard(1) << capSq
+		// Remove captured pawn from hash
+		newHash ^= zobristPieces[enemyColor][Pawn][capSq]
 	}
 
-	// Move piece from -> to
-	pieceLists := []*Bitboard{
-		&board.Pawns[color], &board.Knights[color], &board.Bishops[color],
-		&board.Rooks[color], &board.Queens[color], &board.Kings[color],
-	}
-	for _, piece := range pieceLists {
-		if *piece&fromBB != 0 {
-			*piece &^= fromBB
-			*piece |= toBB
-			break
+	// Move the piece and update hash
+	finalPiece := movingPiece
+	switch movingPiece {
+	case Pawn:
+		board.Pawns[color] &^= fromBB
+		// Check for promotion
+		if (color == White && (toBB&rank8) != 0) || (color == Black && (toBB&rank1) != 0) {
+			switch promoteTo {
+			case 1:
+				board.Rooks[color] |= toBB
+				finalPiece = Rook
+			case 2:
+				board.Knights[color] |= toBB
+				finalPiece = Knight
+			case 3:
+				board.Bishops[color] |= toBB
+				finalPiece = Bishop
+			case 4:
+				board.Queens[color] |= toBB
+				finalPiece = Queen
+			default:
+				board.Pawns[color] |= toBB
+			}
+		} else {
+			board.Pawns[color] |= toBB
 		}
+	case Knight:
+		board.Knights[color] &^= fromBB
+		board.Knights[color] |= toBB
+	case Bishop:
+		board.Bishops[color] &^= fromBB
+		board.Bishops[color] |= toBB
+	case Rook:
+		board.Rooks[color] &^= fromBB
+		board.Rooks[color] |= toBB
+	case Queen:
+		board.Queens[color] &^= fromBB
+		board.Queens[color] |= toBB
+	case King:
+		board.Kings[color] &^= fromBB
+		board.Kings[color] |= toBB
 	}
 
-	// Set en passant target if double push
-	board.EnPassantSquare = -1
-	if (board.Pawns[color]&toBB) != 0 && abs(int(to-from)) == 16 {
-		board.EnPassantSquare = (from + to) / 2
+	// Add piece to destination in hash
+	newHash ^= zobristPieces[color][finalPiece][to]
+
+	// Update en passant square
+	newEnPassant := int8(-1)
+	if movingPiece == Pawn && abs(int(to-from)) == 16 {
+		newEnPassant = (from + to) / 2
+	}
+	board.EnPassantSquare = newEnPassant
+
+	// Add new en passant to hash
+	if newEnPassant >= 0 {
+		newHash ^= zobristEnPassant[newEnPassant]
 	}
 
-	// Update occupancy
+	// Update occupancy bitboards
 	board.Occupied[color] &^= fromBB
 	board.Occupied[color] |= toBB
-	board.Occupied[1-color] &^= toBB
-	board.AllOccupied = board.Occupied[0] | board.Occupied[1]
+	board.Occupied[enemyColor] &^= toBB
 
-	// Update Zobrist
-	board.Hash = ComputeHash(board)
+	// Update castling rights using lookup table
+	board.Flags &= castlingRightsBySquare[from] & castlingRightsBySquare[to]
+
+	// Add new castling rights to hash
+	newHash ^= zobristCastling[board.Flags&0x0F]
+
+	// Toggle side to move
+	board.Flags ^= WhiteToMove
+	newHash ^= zobristSideToMove
+
+	// Update hash
+	board.Hash = newHash
 }
 
-func initZobrist() {
-	rng = rand.New(rand.NewSource(time.Now().UnixNano()))
-	for pieceType := 0; pieceType < 6; pieceType++ {
-		for sq := 0; sq < 64; sq++ {
-			zobristTable[pieceType][sq] = rng.Uint64()
-		}
-	}
-	for sq := 0; sq < 64; sq++ {
-		zobristEnPassant[sq] = rng.Uint64()
-	}
-	zobristSideToMove = rng.Uint64()
-}
-
-// ComputeHash calculates the zobrist hash of the board.
-// colorToMove is 0 for White, 1 for Black.
 func ComputeHash(b *Board) uint64 {
 	var hash uint64 = 0
 
-	// Add pieces for both colors
+	// Add pieces
 	for color := 0; color < 2; color++ {
-		pieces := [6]Bitboard{
-			b.Pawns[color],
-			b.Knights[color],
-			b.Bishops[color],
-			b.Rooks[color],
-			b.Queens[color],
-			b.Kings[color],
-		}
-		for pieceType, bb := range pieces {
+		for pieceType := 0; pieceType < 6; pieceType++ {
+			var bb Bitboard
+			switch pieceType {
+			case 0:
+				bb = b.Pawns[color]
+			case 1:
+				bb = b.Knights[color]
+			case 2:
+				bb = b.Bishops[color]
+			case 3:
+				bb = b.Rooks[color]
+			case 4:
+				bb = b.Queens[color]
+			case 5:
+				bb = b.Kings[color]
+			}
 			for bb != 0 {
 				sq := PopLSB(&bb)
 				hash ^= zobristTable[pieceType][sq]
@@ -331,8 +494,21 @@ func ComputeHash(b *Board) uint64 {
 	}
 
 	// Add side to move
-	if b.SideToMove == Black {
+	if b.Flags&WhiteToMove == 0 {
 		hash ^= zobristSideToMove
+	}
+
+	if b.Flags&WK != 0 {
+		hash ^= zobristCastlingRights[White][0]
+	}
+	if b.Flags&WQ != 0 {
+		hash ^= zobristCastlingRights[White][1]
+	}
+	if b.Flags&BK != 0 {
+		hash ^= zobristCastlingRights[Black][0]
+	}
+	if b.Flags&BQ != 0 {
+		hash ^= zobristCastlingRights[Black][1]
 	}
 
 	return hash

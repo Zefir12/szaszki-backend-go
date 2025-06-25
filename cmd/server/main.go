@@ -35,7 +35,7 @@ func main() {
 	internal.InitGameKeeper()
 	internal.InitAllMatchmakers(100)
 	fmt.Println("Server running on port " + config.AppConfig.WS_PORT)
-	err := internal.ListenAndServe(":" + config.AppConfig.WS_PORT)
+	err := internal.ListenAndServe("localhost:" + config.AppConfig.WS_PORT)
 	if err != nil {
 		log.Fatal("WebSocket server error:", err)
 	}

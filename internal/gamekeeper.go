@@ -3,6 +3,8 @@ package internal
 import (
 	"log"
 	"sync"
+
+	chess "github.com/zefir/szaszki-go-backend/internal/chessengine"
 )
 
 type GameKeeper struct {
@@ -28,12 +30,16 @@ func (g *GameKeeper) CreateGame(players []*Client, mode uint16) *GameSession {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 
+	startingBoard := chess.NewStartingPosition()
 	gamesession := &GameSession{
-		ID:      g.nextID,
-		Players: players,
-		Mode:    mode,
+		ID:           g.nextID,
+		Players:      players,
+		Mode:         mode,
+		Board:        startingBoard,
+		BoardHistory: []chess.Board{startingBoard},
+		SideToMove:   chess.White,
+		MoveChannel:  make(chan PlayerMove, 4),
 	}
-
 	g.games[g.nextID] = gamesession
 	g.nextID++
 

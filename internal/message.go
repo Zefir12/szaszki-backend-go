@@ -8,7 +8,6 @@ import (
 	"github.com/gobwas/ws"
 	"github.com/gobwas/ws/wsutil"
 	bh "github.com/zefir/szaszki-go-backend/internal/binaryHelpers"
-	chess "github.com/zefir/szaszki-go-backend/internal/chessengine"
 )
 
 type MsgType uint16
@@ -76,23 +75,24 @@ func handleMessage(msgType MsgType, payload []byte, client *Client) {
 	case ClientCmds.MovePiece:
 		invalid := func() {
 			client.WriteMsg(ServerCmds.InvalidMove, nil)
-
 		}
+		log.Println("received move")
 		if len(payload) < 2 {
 			log.Println("invalid move payload length")
 			invalid()
 			return
 		}
-		from := int8(payload[0])
-		to := int8(payload[1])
 
-		gameId, err := bh.Unpack(payload, []bh.FieldType{bh.Uint32})
+		ints, err := bh.Unpack(payload, []bh.FieldType{bh.Int8, bh.Int8, bh.Uint32})
 		if err != nil {
-			log.Println("client not in any game")
+			log.Println("cant unpack move")
 			invalid()
 			return
 		}
-		game, ok := keeper.GetGame(gameId[0].(uint32))
+		from := ints[0].(int8)
+		to := ints[1].(int8)
+
+		game, ok := keeper.GetGame(ints[2].(uint32))
 
 		if game == nil || !ok {
 			log.Println("client not in any game")
@@ -100,25 +100,14 @@ func handleMessage(msgType MsgType, payload []byte, client *Client) {
 			return
 		}
 
-		// Make sure it's this player's turn:
-		if game.Players[game.SideToMove] != client {
-			log.Println("not player's turn", client.UserID)
-			invalid()
-			return
+		move := PlayerMove{
+			From:   from,
+			To:     to,
+			Player: client,
 		}
+		log.Println(move, "sending move to game")
+		game.MoveChannel <- move
 
-		// Check legality and apply move
-		if !chess.IsMoveLegal(&game.Board, from, to) {
-			log.Println("illegal move by", client.UserID)
-			invalid()
-			return
-		}
-
-		chess.MakeMove(&game.Board, from, to)
-		game.SideToMove = 1 - game.SideToMove
-
-		// Broadcast updated game state or move to all players
-		game.BroadcastMove(from, to)
 	default:
 	}
 }
