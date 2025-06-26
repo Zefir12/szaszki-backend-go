@@ -1,9 +1,7 @@
 package cloningbench
 
 import (
-	"log"
 	"testing"
-	"time"
 )
 
 type Bitboard uint64

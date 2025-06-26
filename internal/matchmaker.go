@@ -1,32 +1,13 @@
 package internal
 
 import (
-	"encoding/binary"
 	"log"
-	"sync"
-	"time"
 )
 
 type Matchmaker struct {
-	queue            chan *Client
-	mode             uint16
-	acceptChan       chan playerResponse
-	removeClientChan chan *Client
-	pending          map[uint32]*pendingMatch
-	matchLock        sync.Mutex
-}
-
-type pendingMatch struct {
-	players  []*Client
-	timer    *time.Timer
-	accepted map[*Client]bool
-	mode     uint16
-}
-
-type playerResponse struct {
-	matchID uint32
-	client  *Client
-	accept  bool
+	queue  chan *Client
+	remove chan *Client
+	mode   uint16
 }
 
 var matchmakers map[uint16]*Matchmaker
@@ -36,104 +17,121 @@ func InitAllMatchmakers(bufferSize int) {
 	modes := GetAllModes()
 	for _, mode := range modes {
 		m := &Matchmaker{
-			queue:      make(chan *Client, bufferSize),
-			mode:       mode,
-			acceptChan: make(chan playerResponse),
-			pending:    make(map[uint32]*pendingMatch),
+			queue:  make(chan *Client, bufferSize),
+			remove: make(chan *Client, bufferSize),
+			mode:   mode,
 		}
 		matchmakers[mode] = m
-		go m.loop()
 		go m.matchmakingLoop()
 	}
 }
 
 func (m *Matchmaker) matchmakingLoop() {
-	matchIDCounter := uint32(0)
 	waitingList := make([]*Client, 0)
 
 	for {
-		next := <-m.queue // blocks until someone is queued
-		waitingList = append(waitingList, next)
+		select {
+		case newClient := <-m.queue:
+			log.Printf("New client %d joined queue for mode %d", newClient.UserID, m.mode)
+			waitingList = append(waitingList, newClient)
 
-	Drain: // Drain any other waiting players (non-blocking)
-		for i := 1; i < 99; i++ {
-			select {
-			case p := <-m.queue:
-				waitingList = append(waitingList, p)
-			default:
-				break Drain
-			}
+		case leaving := <-m.remove:
+			log.Printf("Removing client %d from mode %d", leaving.UserID, m.mode)
+			waitingList = removeClientFromList(waitingList, leaving)
 		}
 
-		filtered := waitingList[:0] // reuse underlying array to reduce allocations
-
-		for i := 0; i < len(waitingList); {
-			p1 := waitingList[i]
-			i++
-
-			// Drop disconnected player
-			if len(p1.Conns) == 0 {
-				continue
-			}
-
-			// Not enough players left for a match
-			if i >= len(waitingList) {
-				// Keep the leftover connected player
-				filtered = append(filtered, p1)
-				break
-			}
-
-			p2 := waitingList[i]
-			i++
-
-			// Drop disconnected second player and push first back into filtered list
-			if len(p2.Conns) == 0 {
-				filtered = append(filtered, p1)
-				continue
-			}
-
-			// ✅ Both connected: create match
-			log.Println("Matched", p1, "vs", p2)
-
-			// Remove from their queues
-			p1.Mu.Lock()
-			p1.RemoveQueuedMode(m.mode)
-			p1.Mu.Unlock()
-
-			p2.Mu.Lock()
-			p2.RemoveQueuedMode(m.mode)
-			p2.Mu.Unlock()
-
-			matchIDCounter++
-			matchID := matchIDCounter
-
-			pm := &pendingMatch{
-				players:  []*Client{p1, p2},
-				accepted: make(map[*Client]bool),
-				mode:     m.mode,
-			}
-
-			m.matchLock.Lock()
-			m.pending[matchID] = pm
-			m.matchLock.Unlock()
-
-			pm.timer = time.AfterFunc(10*time.Second, func() {
-				m.handleTimeout(matchID)
-			})
-
-			matchIdBytes := make([]byte, 6)
-			binary.BigEndian.PutUint32(matchIdBytes[0:4], uint32(matchID))
-			binary.BigEndian.PutUint16(matchIdBytes[4:6], uint16(pm.mode))
-
-			for _, player := range pm.players {
-				player.WriteMsg(ServerCmds.GameFound, matchIdBytes)
-			}
+		// Always process the waiting list after any event (join or leave)
+		if len(waitingList) > 0 {
+			waitingList = m.processWaitingList(waitingList)
 		}
-
-		waitingList = filtered
-		// Sleep before the next round
-		time.Sleep(50 * time.Millisecond)
 	}
+}
+
+func (m *Matchmaker) processWaitingList(waitingList []*Client) []*Client {
+	// First, drain any additional queued/remove operations (non-blocking)
+	for {
+		select {
+		case newClient := <-m.queue:
+			log.Printf("Draining: New client %d joined queue for mode %d", newClient.UserID, m.mode)
+			waitingList = append(waitingList, newClient)
+		case leaving := <-m.remove:
+			log.Printf("Draining: Removing client %d from mode %d", leaving.UserID, m.mode)
+			waitingList = removeClientFromList(waitingList, leaving)
+		default:
+			// No more pending operations
+			goto ProcessMatches
+		}
+	}
+
+ProcessMatches:
+	if len(waitingList) == 0 {
+		return waitingList
+	}
+
+	filtered := waitingList[:0] // reuse underlying array to reduce allocations
+
+	for i := 0; i < len(waitingList); {
+		p1 := waitingList[i]
+		i++
+
+		// Drop disconnected player
+		if m.isClientDisconnected(p1) {
+			log.Printf("Dropping disconnected client %d from mode %d", p1.UserID, m.mode)
+			continue
+		}
+
+		// Not enough players left for a match
+		if i >= len(waitingList) {
+			// Keep the leftover connected player
+			filtered = append(filtered, p1)
+			break
+		}
+
+		p2 := waitingList[i]
+		i++
+
+		// Drop disconnected second player and push first back into filtered list
+		if m.isClientDisconnected(p2) {
+			log.Printf("Dropping disconnected client %d from mode %d", p2.UserID, m.mode)
+			filtered = append(filtered, p1)
+			continue
+		}
+
+		if p1.UserID == p2.UserID {
+			log.Printf("⚠️  Skipping match: same player queued twice %d in mode %d", p1.UserID, m.mode)
+			continue
+		}
+
+		// ✅ Both connected: create match
+		log.Printf("Matched client %d vs %d in mode %d", p1.UserID, p2.UserID, m.mode)
+		m.startGame([]*Client{p1, p2})
+	}
+
+	return filtered
+}
+
+// Helper method to check if client is disconnected
+func (m *Matchmaker) isClientDisconnected(client *Client) bool {
+	if client == nil {
+		return true
+	}
+
+	// Check if client is marked as disconnected
+	if client.IsDisconnected() {
+		return true
+	}
+
+	// Check connection count
+	if client.ConnCount() == 0 {
+		return true
+	}
+
+	// Check if client still exists in global client list
+	if _, exists := GetClient(client.UserID); !exists {
+		return true
+	}
+
+	return false
 }
 
 func EnqueuePlayerForMode(client *Client, mode uint16) {
@@ -154,89 +152,41 @@ func (m *Matchmaker) Enqueue(client *Client) {
 	}
 }
 
-func (m *Matchmaker) loop() {
-	for {
-		select {
-		case resp := <-m.acceptChan:
-			m.handlePlayerResponse(resp.matchID, resp.client, resp.accept)
+func removeClientFromList(list []*Client, target *Client) []*Client {
+	if target == nil {
+		return list
+	}
 
-		case clientToRemove := <-m.removeClientChan:
-			log.Println("Removing client from waiting:", clientToRemove)
+	newList := list[:0]
+	removed := false
+
+	for _, p := range list {
+		if p != nil && p != target && p.UserID != target.UserID {
+			newList = append(newList, p)
+		} else if p != nil {
+			log.Printf("Removed player with id: %d", p.UserID)
+			removed = true
 		}
 	}
+
+	if !removed {
+		log.Printf("Warning: Client %d was not found in waiting list for removal", target.UserID)
+	}
+
+	return newList
 }
 
-func removeClientFromWaiting(waiting []*Client, client *Client) []*Client {
-	for i, c := range waiting {
-		if c == client {
-			return append(waiting[:i], waiting[i+1:]...)
-		}
-	}
-	return waiting
+// Add method to get queue status for debugging
+func (m *Matchmaker) GetQueueStatus() (int, int) {
+	return len(m.queue), len(m.remove)
 }
 
-func AcceptMatch(client *Client, matchID uint32, accepted bool, mode uint16) {
-	m, ok := matchmakers[mode]
-	if !ok {
-		log.Printf("No matchmaker found for mode %d", mode)
-		return
-	}
-
-	m.acceptChan <- playerResponse{
-		matchID: matchID,
-		client:  client,
-		accept:  accepted,
-	}
-}
-
-func (m *Matchmaker) handlePlayerResponse(matchID uint32, client *Client, accept bool) {
-	m.matchLock.Lock()
-	defer m.matchLock.Unlock()
-
-	pm, exists := m.pending[matchID]
-	if !exists {
-		log.Printf("No pending match found with ID %d", matchID)
-		return
-	}
-
-	if !accept {
-		// Declined: cancel match, notify players, requeue accepted players if desired
-		pm.timer.Stop()
-		delete(m.pending, matchID)
-		for _, p := range pm.players {
-			if p != client {
-				p.WriteMsg(ServerCmds.GameDeclined, nil)
-			}
-		}
-		return
-	}
-
-	// Mark accepted
-	pm.accepted[client] = true
-
-	// Check if all players accepted
-	if len(pm.accepted) == len(pm.players) {
-		pm.timer.Stop()
-		delete(m.pending, matchID)
-
-		go m.startGame(pm.players)
-	}
-}
-
-func (m *Matchmaker) handleTimeout(matchID uint32) {
-	m.matchLock.Lock()
-	defer m.matchLock.Unlock()
-
-	pm, exists := m.pending[matchID]
-	if !exists {
-		return
-	}
-
-	delete(m.pending, matchID)
-
-	for _, p := range pm.players {
-		p.WriteMsg(ServerCmds.GameSearchTimeout, nil)
-		// Optionally requeue players to try matching again
+// Add method to force process waiting clients (useful for testing)
+func (m *Matchmaker) ForceProcess() {
+	select {
+	case m.queue <- nil: // Send nil to trigger processing
+	default:
+		// Queue is full, ignore
 	}
 }
 

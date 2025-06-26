@@ -131,13 +131,6 @@ func closeConn(client *Client, connID uint64) { // Connection closed, remove thi
 	if client != nil {
 		remainingConns := client.RemoveConn(connID)
 		if remainingConns <= 0 {
-			client.Mu.Lock()
-			for mode, ok := range client.QueuedInModes {
-				if ok {
-					matchmakers[mode].removeClientChan <- client //wyjebać z kolejek clienta
-				}
-			}
-			client.Mu.Unlock()
 			RemoveClient(client.UserID)
 		}
 		log.Println(client, remainingConns)

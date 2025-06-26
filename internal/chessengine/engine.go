@@ -84,11 +84,21 @@ type Board struct {
 	Occupied                                      [2]Bitboard
 	Hash                                          uint64
 	EnPassantSquare                               int8
-	Flags                                         uint8 // bitmask: 1 = WK, 2 = WQ, 4 = BK, 8 = BQ, 16 = WhiteToMove
+	Flags                                         uint8  // bitmask: 1 = WK, 2 = WQ, 4 = BK, 8 = BQ, 16 = WhiteToMove
+	HalfmoveClock                                 uint8  // for 50-move rule
+	FullmoveNumber                                uint16 // increments after black's move
 }
 
 func (b *Board) Clone() Board {
 	return *b // shallow copy
+}
+
+// Helper method to get side to move
+func (b *Board) SideToMove() uint8 {
+	if b.Flags&WhiteToMove != 0 {
+		return 0 // White
+	}
+	return 1 // Black
 }
 
 func init() {
@@ -456,6 +466,8 @@ func MakeMove(board *Board, from, to int8, promoteTo int8) {
 	board.Flags ^= WhiteToMove
 	newHash ^= zobristSideToMove
 
+	board.UpdateMoveCounters(capturedPiece)
+
 	// Update hash
 	board.Hash = newHash
 }
@@ -512,4 +524,62 @@ func ComputeHash(b *Board) uint64 {
 	}
 
 	return hash
+}
+
+func (b *Board) ToSquareArray() [64]uint8 {
+	var squares [64]uint8
+
+	// Define piece types (adjust these constants to match your engine)
+	const (
+		Empty  = 0
+		Pawn   = 1
+		Knight = 2
+		Bishop = 3
+		Rook   = 4
+		Queen  = 5
+		King   = 6
+	)
+
+	// For each color (0 = white, 1 = black)
+	for color := 0; color < 2; color++ {
+		colorOffset := uint8(color * 8) // 0 for white, 8 for black pieces
+
+		// Check each piece type
+		pieces := []struct {
+			bitboard  Bitboard
+			pieceType uint8
+		}{
+			{b.Pawns[color], Pawn},
+			{b.Knights[color], Knight},
+			{b.Bishops[color], Bishop},
+			{b.Rooks[color], Rook},
+			{b.Queens[color], Queen},
+			{b.Kings[color], King},
+		}
+
+		for _, piece := range pieces {
+			bb := piece.bitboard
+			for bb != 0 {
+				square := bits.TrailingZeros64(uint64(bb))
+				squares[square] = piece.pieceType + colorOffset
+				bb &= bb - 1 // Clear the least significant bit
+			}
+		}
+	}
+
+	return squares
+}
+
+func (b *Board) UpdateMoveCounters(capturedPiece bool, pawnMove bool) {
+	// Reset halfmove clock on pawn move or capture
+	if pawnMove || capturedPiece {
+		b.HalfmoveClock = 0
+	} else {
+		b.HalfmoveClock++
+	}
+
+	// Increment fullmove number after black's move
+	if b.Flags&16 == 0 { // If it was black's turn (now switching to white)
+		b.FullmoveNumber++
+	}
 }

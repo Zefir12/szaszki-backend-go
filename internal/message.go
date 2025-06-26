@@ -22,6 +22,7 @@ var ServerCmds = struct {
 	GameSearchTimeout    MsgType
 	MoveHappend          MsgType
 	InvalidMove          MsgType
+	GameState            MsgType
 }{
 	Ping:                 1,
 	OutMsgUpdateVariable: 2,
@@ -32,6 +33,7 @@ var ServerCmds = struct {
 	GameSearchTimeout:    7,
 	MoveHappend:          15,
 	InvalidMove:          16,
+	GameState:            20,
 }
 
 var ClientCmds = struct {
@@ -60,18 +62,8 @@ func handleMessage(msgType MsgType, payload []byte, client *Client) {
 		gameMode := binary.BigEndian.Uint16(payload)
 		log.Println("user with id", client.UserID, "wants to find game with type:", gameMode)
 		EnqueuePlayerForMode(client, gameMode)
-	case ClientCmds.AcceptedGame:
-		matchID := binary.BigEndian.Uint32(payload[0:4])
-		mode := binary.BigEndian.Uint16(payload[4:6])
-		AcceptMatch(client, matchID, true, mode)
-		log.Println("match accepted", matchID, mode, client.UserID)
-	case ClientCmds.DeclinedGame:
-		matchID := binary.BigEndian.Uint32(payload[0:4])
-		mode := binary.BigEndian.Uint16(payload[4:6])
-		AcceptMatch(client, matchID, false, mode)
-		log.Println("match declined", matchID, mode, client.UserID)
 	case ClientCmds.CloseSocket:
-
+		log.Println("clients wants to close socket")
 	case ClientCmds.MovePiece:
 		invalid := func() {
 			client.WriteMsg(ServerCmds.InvalidMove, nil)
