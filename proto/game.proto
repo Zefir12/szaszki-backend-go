@@ -1,0 +1,33 @@
+syntax = "proto3";
+
+package game;
+
+option go_package = "/grpc/stuff;auth";
+
+message Move {
+    int32 from = 1;
+    int32 to = 2;
+    int32 promotion = 3;
+}
+
+message GameState {
+    repeated bytes board_history = 1;
+    repeated Move move_history = 2;
+}
+
+message SaveGameRequest {
+    uint32 game_id = 1;
+    uint32 user_id_white = 2;
+    uint32 user_id_black = 3;
+    GameState game_state = 4;
+    string pgn = 5;
+}
+
+message SaveGameResponse {
+    bool success = 1;
+    string message = 2;
+}
+
+service GameService {
+    rpc SaveGame(SaveGameRequest) returns (SaveGameResponse) {}
+}

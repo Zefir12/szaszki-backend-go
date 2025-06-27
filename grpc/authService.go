@@ -1,4 +1,4 @@
-package authclient
+package grpc
 
 import (
 	"context"

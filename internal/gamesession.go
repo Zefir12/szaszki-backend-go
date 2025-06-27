@@ -5,8 +5,11 @@ import (
 	"log"
 	"sync"
 
+	"github.com/zefir/szaszki-go-backend/grpc"
 	bh "github.com/zefir/szaszki-go-backend/internal/binaryHelpers"
 	chess "github.com/zefir/szaszki-go-backend/internal/chessengine"
+
+	pb "github.com/zefir/szaszki-go-backend/grpc/stuff"
 )
 
 type GameSession struct {
@@ -15,6 +18,7 @@ type GameSession struct {
 	Mode         uint16
 	Board        chess.Board
 	BoardHistory []chess.Board
+	MoveHistory  []chess.Move
 	SideToMove   int // 0 = White, 1 = Black
 	MoveChannel  chan PlayerMove
 	GameActive   bool
@@ -22,9 +26,10 @@ type GameSession struct {
 }
 
 type PlayerMove struct {
-	From   int8
-	To     int8
-	Player *Client
+	From      int8
+	To        int8
+	PromoteTo int8
+	Player    *Client
 }
 
 type GameStartMsg struct {
@@ -79,12 +84,14 @@ func (g *GameSession) Run() {
 		//is move by correct palyer
 
 		// check legality
-		if !chess.IsMoveLegal(&g.Board, move.From, move.To, 1) {
+		if !chess.IsMoveLegal(&g.Board, move.From, move.To, move.PromoteTo) {
 			// reject move, ask player again
 			continue
 		}
 
-		chess.MakeMove(&g.Board, move.From, move.To, 1)
+		madeMove := chess.MakeMove(&g.Board, move.From, move.To, move.PromoteTo)
+		g.MoveHistory = append(g.MoveHistory, madeMove)
+		g.BoardHistory = append(g.BoardHistory, g.Board)
 
 		// update side to move
 		g.SideToMove = 1 - g.SideToMove
@@ -93,6 +100,10 @@ func (g *GameSession) Run() {
 		g.BroadcastMove(move.From, move.To)
 
 		// TODO: check for game end (checkmate, stalemate, etc)
+		if g.shouldEndGame() {
+			g.saveGame()
+			break
+		}
 	}
 }
 
@@ -128,6 +139,32 @@ func (g *GameSession) shouldEndGame() bool {
 
 	// End game if less than 2 players connected
 	return connectedPlayers < 2
+}
+
+func (g *GameSession) saveGame() {
+	// Convert board history to byte slices
+	var boardHistoryBytes [][]byte
+	for _, board := range g.BoardHistory {
+		boardHistoryBytes = append(boardHistoryBytes, board.ToByteArray())
+	}
+
+	// Convert move history to protobuf format
+	var moveHistoryProto []*pb.Move
+	for _, move := range g.MoveHistory {
+		moveHistoryProto = append(moveHistoryProto, &pb.Move{From: int32(move.From), To: int32(move.To), Promotion: int32(move.Promotion)})
+	}
+
+	gameState := &pb.GameState{
+		BoardHistory: boardHistoryBytes,
+		MoveHistory:  moveHistoryProto,
+	}
+
+	pgn := g.Board.ToPGN(g.MoveHistory)
+
+	_, err := grpc.SaveGame(g.ID, g.Players[0].UserID, g.Players[1].UserID, gameState, pgn)
+	if err != nil {
+		log.Printf("Failed to save game %d: %v", g.ID, err)
+	}
 }
 
 func (g *GameSession) broadcastGameState() {

@@ -69,13 +69,13 @@ func handleMessage(msgType MsgType, payload []byte, client *Client) {
 			client.WriteMsg(ServerCmds.InvalidMove, nil)
 		}
 		log.Println("received move")
-		if len(payload) < 2 {
+		if len(payload) < 3 {
 			log.Println("invalid move payload length")
 			invalid()
 			return
 		}
 
-		ints, err := bh.Unpack(payload, []bh.FieldType{bh.Int8, bh.Int8, bh.Uint32})
+		ints, err := bh.Unpack(payload, []bh.FieldType{bh.Int8, bh.Int8, bh.Int8, bh.Uint32})
 		if err != nil {
 			log.Println("cant unpack move")
 			invalid()
@@ -83,8 +83,9 @@ func handleMessage(msgType MsgType, payload []byte, client *Client) {
 		}
 		from := ints[0].(int8)
 		to := ints[1].(int8)
+		promoteTo := ints[2].(int8)
 
-		game, ok := keeper.GetGame(ints[2].(uint32))
+		game, ok := keeper.GetGame(ints[3].(uint32))
 
 		if game == nil || !ok {
 			log.Println("client not in any game")
@@ -93,9 +94,10 @@ func handleMessage(msgType MsgType, payload []byte, client *Client) {
 		}
 
 		move := PlayerMove{
-			From:   from,
-			To:     to,
-			Player: client,
+			From:      from,
+			To:        to,
+			PromoteTo: promoteTo,
+			Player:    client,
 		}
 		log.Println(move, "sending move to game")
 		game.MoveChannel <- move

@@ -1,6 +1,7 @@
 package chess
 
 import (
+	"fmt"
 	"math/bits"
 	"math/rand"
 )
@@ -250,26 +251,23 @@ func NewStartingPosition() Board {
 func slidingAttacks(sq int, occupied Bitboard, deltas []int) Bitboard {
 	var attacks Bitboard
 	for _, d := range deltas {
-		curr := sq
-		for {
-			curr += d
-			if curr < 0 || curr >= 64 || isEdgeCrossed(sq, curr, d) {
+		for s := sq + d; s >= 0 && s < 64; s += d {
+			// Check for horizontal wrap-around
+			if (d == 1 || d == -1) && s/8 != sq/8 {
 				break
 			}
-			attacks |= Bitboard(1) << curr
-			if (occupied & (Bitboard(1) << curr)) != 0 {
+			// Check for diagonal wrap-around
+			if (d == 9 || d == -7 || d == 7 || d == -9) && abs(s%8-((s-d)%8)) != 1 {
+				break
+			}
+
+			attacks |= (1 << s)
+			if (occupied & (1 << s)) != 0 {
 				break
 			}
 		}
 	}
 	return attacks
-}
-
-func isEdgeCrossed(from, to, delta int) bool {
-	fx, fy := from%8, from/8
-	tx, ty := to%8, to/8
-	dx, dy := abs(tx-fx), abs(ty-fy)
-	return dx > 1 && dy > 1
 }
 
 func abs(x int) int {
@@ -335,7 +333,7 @@ func IsSquareAttacked(sq int, board *Board, attackerColor int8) bool {
 	return false
 }
 
-func MakeMove(board *Board, from, to int8, promoteTo int8) {
+func MakeMove(board *Board, from, to int8, promoteTo int8) Move {
 	fromBB := Bitboard(1) << from
 	toBB := Bitboard(1) << to
 	color := int8((board.Flags&WhiteToMove)>>4) ^ 1
@@ -466,10 +464,11 @@ func MakeMove(board *Board, from, to int8, promoteTo int8) {
 	board.Flags ^= WhiteToMove
 	newHash ^= zobristSideToMove
 
-	board.UpdateMoveCounters(capturedPiece)
+	board.UpdateMoveCounters(capturedPiece != -1, movingPiece == Pawn)
 
 	// Update hash
 	board.Hash = newHash
+	return Move{From: from, To: to, Promotion: promoteTo}
 }
 
 func ComputeHash(b *Board) uint64 {
@@ -480,48 +479,38 @@ func ComputeHash(b *Board) uint64 {
 		for pieceType := 0; pieceType < 6; pieceType++ {
 			var bb Bitboard
 			switch pieceType {
-			case 0:
+			case Pawn:
 				bb = b.Pawns[color]
-			case 1:
+			case Knight:
 				bb = b.Knights[color]
-			case 2:
+			case Bishop:
 				bb = b.Bishops[color]
-			case 3:
+			case Rook:
 				bb = b.Rooks[color]
-			case 4:
+			case Queen:
 				bb = b.Queens[color]
-			case 5:
+			case King:
 				bb = b.Kings[color]
 			}
 			for bb != 0 {
 				sq := PopLSB(&bb)
-				hash ^= zobristTable[pieceType][sq]
+				hash ^= zobristPieces[color][pieceType][sq]
 			}
 		}
 	}
 
 	// Add en passant if present
-	if b.EnPassantSquare >= 0 && b.EnPassantSquare < 64 {
+	if b.EnPassantSquare >= 0 {
 		hash ^= zobristEnPassant[b.EnPassantSquare]
 	}
 
 	// Add side to move
-	if b.Flags&WhiteToMove == 0 {
+	if b.Flags&WhiteToMove == 0 { // If it's Black's turn
 		hash ^= zobristSideToMove
 	}
 
-	if b.Flags&WK != 0 {
-		hash ^= zobristCastlingRights[White][0]
-	}
-	if b.Flags&WQ != 0 {
-		hash ^= zobristCastlingRights[White][1]
-	}
-	if b.Flags&BK != 0 {
-		hash ^= zobristCastlingRights[Black][0]
-	}
-	if b.Flags&BQ != 0 {
-		hash ^= zobristCastlingRights[Black][1]
-	}
+	// Add castling rights
+	hash ^= zobristCastling[b.Flags&0x0F]
 
 	return hash
 }
@@ -570,6 +559,10 @@ func (b *Board) ToSquareArray() [64]uint8 {
 	return squares
 }
 
+type Move struct {
+	From, To, Promotion int8
+}
+
 func (b *Board) UpdateMoveCounters(capturedPiece bool, pawnMove bool) {
 	// Reset halfmove clock on pawn move or capture
 	if pawnMove || capturedPiece {
@@ -582,4 +575,48 @@ func (b *Board) UpdateMoveCounters(capturedPiece bool, pawnMove bool) {
 	if b.Flags&16 == 0 { // If it was black's turn (now switching to white)
 		b.FullmoveNumber++
 	}
+}
+
+func (b *Board) ToByteArray() []byte {
+	squares := b.ToSquareArray()
+	bytes := make([]byte, len(squares))
+	for i, s := range squares {
+		bytes[i] = byte(s)
+	}
+	return bytes
+}
+
+func (b *Board) ToPGN(moveHistory []Move) string {
+	var pgn string
+	for i, move := range moveHistory {
+		if i%2 == 0 {
+			pgn += fmt.Sprintf("%d. %s ", i/2+1, moveToString(move))
+		} else {
+			pgn += fmt.Sprintf("%s ", moveToString(move))
+		}
+	}
+	return pgn
+}
+
+func moveToString(move Move) string {
+	from := squareToString(move.From)
+	to := squareToString(move.To)
+	promo := ""
+	switch move.Promotion {
+	case Rook:
+		promo = "R"
+	case Knight:
+		promo = "N"
+	case Bishop:
+		promo = "B"
+	case Queen:
+		promo = "Q"
+	}
+	return from + to + promo
+}
+
+func squareToString(s int8) string {
+	file := s % 8
+	rank := s / 8
+	return string('a'+file) + string('1'+rank)
 }
