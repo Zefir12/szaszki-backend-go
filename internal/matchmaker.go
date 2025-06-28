@@ -2,6 +2,8 @@ package internal
 
 import (
 	"log"
+
+	"github.com/zefir/szaszki-go-backend/logger"
 )
 
 type Matchmaker struct {
@@ -137,7 +139,7 @@ func (m *Matchmaker) isClientDisconnected(client *Client) bool {
 func EnqueuePlayerForMode(client *Client, mode uint16) {
 	m, ok := matchmakers[mode]
 	if !ok {
-		log.Printf("No matchmaker for mode %d", mode)
+		logger.Log.Warn().Uint32("clientId", client.UserID).Uint16("mode", m.mode).Msg("Matchmaker doesn't exist, client cant enqueue")
 		return
 	}
 	m.Enqueue(client)
@@ -146,9 +148,9 @@ func EnqueuePlayerForMode(client *Client, mode uint16) {
 func (m *Matchmaker) Enqueue(client *Client) {
 	select {
 	case m.queue <- client:
-		log.Printf("Client %d entered matchmaking queue: %d", client.UserID, m.mode)
+		logger.Log.Info().Uint32("clientId", client.UserID).Uint16("mode", m.mode).Msg("Client joined matchmaking queue")
 	default:
-		log.Printf("Matchmaking queue full for client %d", client.UserID)
+		logger.Log.Warn().Uint32("clientId", client.UserID).Uint16("mode", m.mode).Msg("Client cant join matchmaking queue")
 	}
 }
 
@@ -164,13 +166,13 @@ func removeClientFromList(list []*Client, target *Client) []*Client {
 		if p != nil && p != target && p.UserID != target.UserID {
 			newList = append(newList, p)
 		} else if p != nil {
-			log.Printf("Removed player with id: %d", p.UserID)
+			logger.Log.Warn().Uint32("clientId", target.UserID).Msg("Removed client form list")
 			removed = true
 		}
 	}
 
 	if !removed {
-		log.Printf("Warning: Client %d was not found in waiting list for removal", target.UserID)
+		logger.Log.Warn().Uint32("clientId", target.UserID).Msg("Client not found in list to remove")
 	}
 
 	return newList
@@ -191,6 +193,11 @@ func (m *Matchmaker) ForceProcess() {
 }
 
 func (m *Matchmaker) startGame(players []*Client) {
-	log.Printf("Starting game with players: %d and %d", players[0].UserID, players[1].UserID)
+
+	logger.Log.Info().
+		Uint32("whitePlayerId", players[0].UserID).
+		Uint32("blackPlayerId", players[1].UserID).
+		Uint16("mode", m.mode).
+		Msg("Starting game")
 	GetGameKeeper().CreateGame(players, m.mode)
 }

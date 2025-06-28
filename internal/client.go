@@ -4,6 +4,8 @@ import (
 	"log"
 	"net"
 	"sync"
+
+	"github.com/zefir/szaszki-go-backend/logger"
 )
 
 type Client struct {
@@ -27,7 +29,7 @@ func (c *Client) AddConn(id uint64, conn net.Conn) {
 		c.Conns = make(map[uint64]net.Conn)
 	}
 	c.Conns[id] = conn
-	log.Println("conn added", id)
+	logger.Log.Info().Uint32("clientId", c.UserID).Uint64("connId", id).Msg("Added conn to client")
 }
 
 func AddClient(userID uint32, connID uint64, conn net.Conn) {
@@ -37,6 +39,7 @@ func AddClient(userID uint32, connID uint64, conn net.Conn) {
 	if client, ok := clients[userID]; ok {
 		// Client exists, add new connection
 		client.AddConn(connID, conn)
+		logger.Log.Info().Uint32("clientId", client.UserID).Uint64("connId", connID).Msg("Added new connection to client")
 	} else {
 		// Create new client and add connection
 		c := &Client{
@@ -44,6 +47,7 @@ func AddClient(userID uint32, connID uint64, conn net.Conn) {
 			Conns:         make(map[uint64]net.Conn),
 			QueuedInModes: make(map[uint16]bool),
 		}
+		logger.Log.Info().Uint32("clientId", client.UserID).Uint64("connId", connID).Msg("Making new client for connection and adding connection")
 		c.Conns[connID] = conn
 		clients[userID] = c
 	}
@@ -81,11 +85,10 @@ func GetClientOrCreate(userID uint32) *Client {
 		client.Mu.Unlock()
 
 		if disconnected {
-			log.Println("client was disconnected, creating new one", userID)
+			logger.Log.Info().Uint32("clientId", client.UserID).Msg("Client is diconnected, making new one, and deleting old")
 			// Remove the old disconnected client
 			delete(clients, userID)
 		} else {
-			log.Println("got client", userID)
 			return client
 		}
 	}
@@ -96,7 +99,7 @@ func GetClientOrCreate(userID uint32) *Client {
 		Conns:         make(map[uint64]net.Conn),
 		QueuedInModes: make(map[uint16]bool),
 	}
-	log.Println("created client", userID)
+	logger.Log.Info().Uint32("clientId", client.UserID).Msg("Client created")
 	clients[userID] = client
 	return client
 }
@@ -132,14 +135,14 @@ func RemoveClient(userID uint32) {
 
 		// Close all connections
 		for connID, conn := range client.Conns {
-			log.Println("closing connection", connID, "for user", userID)
+			logger.Log.Info().Uint32("clientId", client.UserID).Uint64("connId", connID).Msg("Closing connection for client")
 			conn.Close()
 		}
 		client.Conns = make(map[uint64]net.Conn) // Clear the map
 		client.Mu.Unlock()
 
 		delete(clients, userID)
-		log.Println("client removed", userID)
+		logger.Log.Info().Uint32("clientId", client.UserID).Msg("Client removed")
 	}
 }
 
@@ -171,13 +174,8 @@ func (c *Client) RemoveConn(connID uint64) int {
 
 	if c.Conns != nil {
 		if _, exists := c.Conns[connID]; exists {
-			log.Println("conn removed", connID)
 			delete(c.Conns, connID)
-
-			log.Println("remaining conns for client", c.UserID, ":")
-			for id := range c.Conns {
-				log.Println(" - connID:", id)
-			}
+			logger.Log.Info().Uint32("clientId", c.UserID).Uint64("connectionId", connID).Uint16("remaining connections", uint16(len(c.Conns))).Msg("Connection removed")
 
 			if len(c.Conns) <= 0 {
 				c.disconnected = true // Mark as disconnected before handling
@@ -187,7 +185,7 @@ func (c *Client) RemoveConn(connID uint64) int {
 				c.Mu.Lock() // Re-lock for defer unlock
 			}
 		} else {
-			log.Println("connection", connID, "not found for removal")
+			logger.Log.Warn().Uint32("clientId", c.UserID).Uint64("connId", connID).Msg("Can't find connection to remove")
 		}
 	}
 	return len(c.Conns)
@@ -204,9 +202,9 @@ func (c *Client) handleDisconnect() {
 			defer wg.Done()
 			select {
 			case matchmaker.remove <- c:
-				log.Printf("Successfully sent client %d to matchmaker %d remove queue", c.UserID, index)
+				logger.Log.Info().Uint32("clientId", c.UserID).Uint16("mode", m.mode).Msg("Client sent to be removed from matchmaker")
 			default:
-				log.Printf("Warning: could not send client %d to matchmaker %d remove queue (channel full)", c.UserID, index)
+				logger.Log.Warn().Uint32("clientId", c.UserID).Uint16("mode", m.mode).Msg("Client couldn't be sent to be removed from matchmaker")
 			}
 		}(m, i)
 	}

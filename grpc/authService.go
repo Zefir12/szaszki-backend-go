@@ -2,22 +2,16 @@ package grpc
 
 import (
 	"context"
-	"log"
 	"time"
 
 	pb "github.com/zefir/szaszki-go-backend/grpc/stuff"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 )
 
 var client pb.AuthServiceClient
 
 // Init connects to gRPC auth server and sets the client
-func Init(addr string) {
-	conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
-	if err != nil {
-		log.Fatalf("[authclient] Failed to connect: %v", err)
-	}
+func Init(conn *grpc.ClientConn) {
 	client = pb.NewAuthServiceClient(conn)
 }
 
