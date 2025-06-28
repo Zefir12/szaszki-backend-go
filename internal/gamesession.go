@@ -8,6 +8,7 @@ import (
 	"github.com/zefir/szaszki-go-backend/grpc"
 	bh "github.com/zefir/szaszki-go-backend/internal/binaryHelpers"
 	chess "github.com/zefir/szaszki-go-backend/internal/chessengine"
+	"github.com/zefir/szaszki-go-backend/logger"
 
 	pb "github.com/zefir/szaszki-go-backend/grpc/stuff"
 )
@@ -39,7 +40,7 @@ type GameStartMsg struct {
 }
 
 func (g *GameSession) Run() {
-	log.Printf("Game %d started!", g.ID)
+	logger.Log.Info().Uint32("gameId", g.ID).Msg("Game started!")
 
 	g.Board = chess.NewStartingPosition()
 	g.SideToMove = chess.White
@@ -58,14 +59,14 @@ func (g *GameSession) Run() {
 
 	data, err := json.Marshal(msg)
 	if err != nil {
-		log.Printf("error marshaling game start message: %v", err)
+		logger.Log.Warn().Err(err).Uint32("gameId", g.ID).Msg("error marshaling game start message")
 		return
 	}
 
 	for _, player := range g.Players {
 		err := player.WriteMsg(ServerCmds.GameStarted, data)
 		if err != nil {
-			log.Printf("error sending message to player %d: %v", player.UserID, err)
+			logger.Log.Warn().Err(err).Uint32("playerId", player.UserID).Uint32("gameId", g.ID).Msg("error sending message to player")
 		}
 	}
 
@@ -73,11 +74,11 @@ func (g *GameSession) Run() {
 	for {
 		// wait for move from current player
 		move := <-g.MoveChannel
-		log.Println(move)
+		logger.Log.Info().Uint32("gameId", g.ID).Int("from", int(move.From)).Int("to", int(move.To)).Int("promoteTo", int(move.PromoteTo)).Uint32("playerId", move.Player.UserID).Msg("Received move")
 
 		// Confirm move came from the correct player
 		// if g.Players[g.SideToMove] != move.Player {
-		// 	log.Println("ignoring move from wrong player:", move.Player.UserID)
+		// 	logger.Log.Warn().Uint32("playerId", move.Player.UserID).Uint32("gameId", g.ID).Msg("ignoring move from wrong player")
 		// 	continue
 		// }
 
@@ -96,8 +97,7 @@ func (g *GameSession) Run() {
 		// update side to move
 		g.SideToMove = 1 - g.SideToMove
 
-		// broadcast updated board or move to players
-		g.BroadcastMove(move.From, move.To)
+		g.BroadcastMove(move.From, move.To, move.PromoteTo)
 
 		// TODO: check for game end (checkmate, stalemate, etc)
 		if g.shouldEndGame() {
@@ -107,11 +107,14 @@ func (g *GameSession) Run() {
 	}
 }
 
-func (g *GameSession) BroadcastMove(from, to int8) {
+func (g *GameSession) BroadcastMove(from, to, promote int8) {
 
-	payload, err := bh.Pack([]bh.FieldType{bh.Int8, bh.Int8, bh.Uint32}, []any{from, to, g.ID})
+	log.Printf("Broadcasting move: from=%d (%T), to=%d (%T), promote=%d (%T), g.ID=%d",
+		from, from, to, to, promote, promote, g.ID,
+	)
+	payload, err := bh.Pack([]bh.FieldType{bh.Int8, bh.Int8, bh.Int8, bh.Uint32}, []any{from, to, promote, g.ID})
 	if err != nil {
-		log.Println("couldnt pack move")
+		logger.Log.Warn().Err(err).Uint32("gameId", g.ID).Msg("couldnt pack move")
 		return
 	}
 
@@ -163,7 +166,7 @@ func (g *GameSession) saveGame() {
 
 	_, err := grpc.SaveGame(g.ID, g.Players[0].UserID, g.Players[1].UserID, gameState, pgn)
 	if err != nil {
-		log.Printf("Failed to save game %d: %v", g.ID, err)
+		logger.Log.Warn().Err(err).Uint32("gameId", g.ID).Msg("Failed to save game")
 	}
 }
 
@@ -202,7 +205,7 @@ func (g *GameSession) broadcastGameState() {
 			},
 		)
 		if err != nil {
-			log.Printf("Game %d: error packing game state header: %v", g.ID, err)
+			logger.Log.Warn().Err(err).Uint32("gameId", g.ID).Msg("error packing game state header")
 			continue
 		}
 
@@ -211,7 +214,7 @@ func (g *GameSession) broadcastGameState() {
 
 		err = player.WriteMsg(ServerCmds.GameState, payload)
 		if err != nil {
-			log.Printf("Game %d: error sending game state to player %d: %v", g.ID, player.UserID, err)
+			logger.Log.Warn().Err(err).Uint32("gameId", g.ID).Uint32("playerId", player.UserID).Msg("error sending game state to player")
 		}
 	}
 }

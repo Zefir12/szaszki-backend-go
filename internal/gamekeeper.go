@@ -1,10 +1,10 @@
 package internal
 
 import (
-	"log"
 	"sync"
 
 	chess "github.com/zefir/szaszki-go-backend/internal/chessengine"
+	"github.com/zefir/szaszki-go-backend/logger"
 )
 
 type GameKeeper struct {
@@ -43,7 +43,11 @@ func (g *GameKeeper) CreateGame(players []*Client, mode uint16) *GameSession {
 	g.games[g.nextID] = gamesession
 	g.nextID++
 
-	log.Printf("Game %d created with players: %v", gamesession.ID, players)
+	playerIDs := make([]uint32, len(players))
+	for i, p := range players {
+		playerIDs[i] = p.UserID
+	}
+	logger.Log.Info().Uint32("gameId", gamesession.ID).Interface("playerIDs", playerIDs).Msg("Game created")
 	// Start game loop in separate goroutine
 	go gamesession.Run()
 

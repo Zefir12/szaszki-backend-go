@@ -3,13 +3,14 @@ package internal
 import (
 	"encoding/binary"
 	"io"
-	"log"
 	"net"
 	"sync"
 
 	"github.com/gobwas/ws"
 	"github.com/gobwas/ws/wsutil"
 	authclient "github.com/zefir/szaszki-go-backend/grpc"
+	bh "github.com/zefir/szaszki-go-backend/internal/binaryHelpers"
+	"github.com/zefir/szaszki-go-backend/logger"
 )
 
 var connCounter uint64 = 0
@@ -28,12 +29,12 @@ func ListenAndServe(addr string) error {
 		return err
 	}
 
-	log.Println("WebSocket server started on", addr)
+	logger.Log.Info().Str("addr", addr).Msg("WebSocket server started")
 
 	for {
 		conn, err := ln.Accept()
 		if err != nil {
-			log.Println("Accept error:", err)
+			logger.Log.Warn().Err(err).Msg("Accept error")
 			continue
 		}
 
@@ -46,7 +47,7 @@ func handleConn(conn net.Conn) {
 
 	_, err := ws.Upgrade(conn)
 	if err != nil {
-		log.Println("WebSocket upgrade error:", err)
+		logger.Log.Warn().Err(err).Msg("WebSocket upgrade error")
 		conn.Close()
 		return
 	}
@@ -94,7 +95,7 @@ func handleConn(conn net.Conn) {
 			token := string(payload)
 			valid, uid, err := authclient.ValidateToken(token)
 			if err != nil || !valid {
-				log.Println("Invalid token:", err)
+				logger.Log.Warn().Err(err).Msg("Invalid token")
 				conn.Close()
 				closeConn(client, connID)
 				break
@@ -105,8 +106,10 @@ func handleConn(conn net.Conn) {
 			client = GetClientOrCreate(userID)
 			client.AddConn(connID, conn)
 
+			payload, _ := bh.Pack([]bh.FieldType{bh.Uint32}, []any{client.UserID})
+
 			// Send auth success
-			WriteMsgToSingleConn(conn, ServerCmds.ClientAuthenticated, nil)
+			WriteMsgToSingleConn(conn, ServerCmds.ClientAuthenticated, payload)
 
 			PutBuffer(bufPtr)
 			continue
@@ -133,7 +136,7 @@ func closeConn(client *Client, connID uint64) { // Connection closed, remove thi
 		if remainingConns <= 0 {
 			RemoveClient(client.UserID)
 		}
-		log.Println(client, remainingConns)
+		logger.Log.Info().Uint32("clientId", client.UserID).Int("remainingConns", remainingConns).Msg("Connection closed, client has remaining connections")
 	}
 }
 

@@ -1,7 +1,6 @@
 package internal
 
 import (
-	"log"
 	"net"
 	"sync"
 
@@ -168,7 +167,7 @@ func (c *Client) RemoveConn(connID uint64) int {
 	defer c.Mu.Unlock()
 
 	if c.disconnected {
-		log.Println("client already disconnected, ignoring conn removal", connID)
+		logger.Log.Warn().Uint32("clientId", c.UserID).Uint64("connId", connID).Msg("client already disconnected, ignoring conn removal")
 		return 0
 	}
 
@@ -192,7 +191,7 @@ func (c *Client) RemoveConn(connID uint64) int {
 }
 
 func (c *Client) handleDisconnect() {
-	log.Println("handling disconnect for client", c.UserID)
+	logger.Log.Info().Uint32("clientId", c.UserID).Msg("handling disconnect for client")
 
 	// Remove from all matchmakers - make this more robust
 	var wg sync.WaitGroup

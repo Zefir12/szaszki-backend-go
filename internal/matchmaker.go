@@ -1,8 +1,6 @@
 package internal
 
 import (
-	"log"
-
 	"github.com/zefir/szaszki-go-backend/logger"
 )
 
@@ -34,11 +32,11 @@ func (m *Matchmaker) matchmakingLoop() {
 	for {
 		select {
 		case newClient := <-m.queue:
-			log.Printf("New client %d joined queue for mode %d", newClient.UserID, m.mode)
+			logger.Log.Info().Uint32("clientId", newClient.UserID).Uint16("mode", m.mode).Msg("New client joined queue for mode")
 			waitingList = append(waitingList, newClient)
 
 		case leaving := <-m.remove:
-			log.Printf("Removing client %d from mode %d", leaving.UserID, m.mode)
+			logger.Log.Info().Uint32("clientId", leaving.UserID).Uint16("mode", m.mode).Msg("Removing client from mode")
 			waitingList = removeClientFromList(waitingList, leaving)
 		}
 
@@ -54,10 +52,10 @@ func (m *Matchmaker) processWaitingList(waitingList []*Client) []*Client {
 	for {
 		select {
 		case newClient := <-m.queue:
-			log.Printf("Draining: New client %d joined queue for mode %d", newClient.UserID, m.mode)
+			logger.Log.Info().Uint32("clientId", newClient.UserID).Uint16("mode", m.mode).Msg("Draining: New client joined queue for mode")
 			waitingList = append(waitingList, newClient)
 		case leaving := <-m.remove:
-			log.Printf("Draining: Removing client %d from mode %d", leaving.UserID, m.mode)
+			logger.Log.Info().Uint32("clientId", leaving.UserID).Uint16("mode", m.mode).Msg("Draining: Removing client from mode")
 			waitingList = removeClientFromList(waitingList, leaving)
 		default:
 			// No more pending operations
@@ -78,7 +76,7 @@ ProcessMatches:
 
 		// Drop disconnected player
 		if m.isClientDisconnected(p1) {
-			log.Printf("Dropping disconnected client %d from mode %d", p1.UserID, m.mode)
+			logger.Log.Info().Uint32("clientId", p1.UserID).Uint16("mode", m.mode).Msg("Dropping disconnected client from mode")
 			continue
 		}
 
@@ -94,18 +92,18 @@ ProcessMatches:
 
 		// Drop disconnected second player and push first back into filtered list
 		if m.isClientDisconnected(p2) {
-			log.Printf("Dropping disconnected client %d from mode %d", p2.UserID, m.mode)
+			logger.Log.Info().Uint32("clientId", p2.UserID).Uint16("mode", m.mode).Msg("Dropping disconnected client from mode")
 			filtered = append(filtered, p1)
 			continue
 		}
 
 		if p1.UserID == p2.UserID {
-			log.Printf("⚠️  Skipping match: same player queued twice %d in mode %d", p1.UserID, m.mode)
+			logger.Log.Warn().Uint32("clientId", p1.UserID).Uint16("mode", m.mode).Msg("Skipping match: same player queued twice")
 			continue
 		}
 
 		// ✅ Both connected: create match
-		log.Printf("Matched client %d vs %d in mode %d", p1.UserID, p2.UserID, m.mode)
+		logger.Log.Info().Uint32("p1_clientId", p1.UserID).Uint32("p2_clientId", p2.UserID).Uint16("mode", m.mode).Msg("Matched clients in mode")
 		m.startGame([]*Client{p1, p2})
 	}
 

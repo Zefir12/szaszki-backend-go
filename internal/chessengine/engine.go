@@ -2,6 +2,7 @@ package chess
 
 import (
 	"fmt"
+	"log"
 	"math/bits"
 	"math/rand"
 )
@@ -11,8 +12,8 @@ import (
 type Bitboard uint64
 
 const (
-	White = 0
-	Black = 1
+	White = 1
+	Black = 0
 )
 
 const zobristSeed = 0xCAFEBABE
@@ -334,12 +335,15 @@ func IsSquareAttacked(sq int, board *Board, attackerColor int8) bool {
 }
 
 func MakeMove(board *Board, from, to int8, promoteTo int8) Move {
+
+	log.Println(from, to, promoteTo)
 	fromBB := Bitboard(1) << from
 	toBB := Bitboard(1) << to
 	color := int8((board.Flags&WhiteToMove)>>4) ^ 1
 	enemyColor := 1 - color
 
 	movingPiece := GetPieceType(board, from, color)
+	log.Println("mving piece", movingPiece, from, color)
 	capturedPiece := GetPieceType(board, to, enemyColor)
 
 	newHash := board.Hash // Start incremental hash updates
@@ -435,6 +439,7 @@ func MakeMove(board *Board, from, to int8, promoteTo int8) Move {
 	}
 
 	// Add piece to destination in hash
+	log.Println(color, finalPiece, to)
 	newHash ^= zobristPieces[color][finalPiece][to]
 
 	// Update en passant square
