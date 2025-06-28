@@ -1,3 +1,5 @@
 tmp/build-errors.log
 cmd/server/tmp/main.exe
 tests/shardingBench/results/*
+.env
+
