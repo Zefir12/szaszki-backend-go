@@ -3,7 +3,9 @@ package main
 import (
 	"fmt"
 	"log"
+	"net/http"
 	"runtime"
+	"strconv"
 	"time"
 
 	"github.com/rs/zerolog"
@@ -31,11 +33,29 @@ func logRuntimeStats() {
 	}
 }
 
+func healthHandler(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte("OK"))
+}
+
+func startHealthServer() {
+	http.HandleFunc("/health", healthHandler)
+	healthPort := "3131"
+
+	log.Println("Health server listening on", healthPort)
+	if err := http.ListenAndServe("0.0.0.0:"+healthPort, nil); err != nil {
+		log.Fatalf("Health server failed: %v", err)
+	}
+}
+
 func main() {
-	config.Load()
+	cfg, err := config.Instance.Get()
+	if err != nil {
+		log.Fatalf("failed to load config: %v", err)
+	}
 
 	// Connect to Node gRPC log service
-	conn, err := grpc.NewClient("localhost:"+config.AppConfig.GRPC_PORT, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	conn, err := grpc.NewClient(cfg.NODE_GRPC_ADDR+":"+strconv.Itoa(int(cfg.GRPC_PORT)), grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		panic("Failed to connect to gRPC logger: " + err.Error())
 	}
@@ -48,14 +68,17 @@ func main() {
 
 	logger.Log.Info().Str("status", "booted").Msg("Szaszki server starting up")
 
+	// Start healthcheck server in the background
+	go startHealthServer()
+
 	go logRuntimeStats()
 	authclient.Init(conn)
 
 	internal.InitGameKeeper()
 	internal.InitAllMatchmakers(100)
-	fmt.Println("Server running on port " + config.AppConfig.WS_PORT)
+	fmt.Println("Server running on port " + strconv.Itoa(int(cfg.WS_PORT)))
 	logger.Log.Info().Str("status", "running").Msg("Server started")
-	lerr := internal.ListenAndServe("localhost:" + config.AppConfig.WS_PORT)
+	lerr := internal.ListenAndServe("0.0.0.0:" + strconv.Itoa(int(cfg.WS_PORT)))
 	if lerr != nil {
 		log.Fatal("WebSocket server error:", err)
 		logger.Log.Panic().Str("status", "error").Msg("Somthing went wrong with server startup")
