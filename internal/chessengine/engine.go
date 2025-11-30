@@ -146,6 +146,17 @@ func initZobristExtended() {
 	}
 }
 
+func IndexToSqaureName(index int8) string {
+	if index < 0 || index > 63 {
+		return "??"
+	}
+
+	file := index % 8
+	rank := 8 - (index / 8)
+
+	return fmt.Sprintf("%c%d", 'a'+file, rank)
+}
+
 // === Bitboard Helpers ===
 func PopLSB(bb *Bitboard) int {
 	lsb := *bb & -*bb
@@ -301,14 +312,54 @@ func GetPieceType(board *Board, square int8, color int8) int {
 	return -1 // No piece
 }
 
-func IsMoveLegal(board *Board, from, to, promoteTo int8) bool {
-	temp := *board // copy board
-	MakeMove(&temp, from, to, promoteTo)
+func (b *Board) HasLegalMoves(color int8) bool {
+	occupied := b.Occupied[White] | b.Occupied[Black]
 
-	attackerColor := int8((board.Flags&WhiteToMove)>>4) ^ 1
+	// Iterate pieces by type
+	pieceLoops := []struct {
+		bb    Bitboard
+		moves func(from int) Bitboard
+	}{
+		{b.Pawns[color], func(from int) Bitboard {
+			single := SinglePawnPush(Bitboard(1)<<from, ^occupied, color == White)
+			attacks := PawnAttacks(Bitboard(1)<<from, b.Occupied[1-color], color == White)
+			return single | attacks
+		}},
+		{b.Knights[color], func(from int) Bitboard { return knightMoves[from] & ^b.Occupied[color] }},
+		{b.Bishops[color], func(from int) Bitboard {
+			return slidingAttacks(from, occupied, directions["bishop"]) & ^b.Occupied[color]
+		}},
+		{b.Rooks[color], func(from int) Bitboard {
+			return slidingAttacks(from, occupied, directions["rook"]) & ^b.Occupied[color]
+		}},
+		{b.Queens[color], func(from int) Bitboard {
+			return slidingAttacks(from, occupied, append(directions["rook"], directions["bishop"]...)) & ^b.Occupied[color]
+		}},
+		{b.Kings[color], func(from int) Bitboard { return kingMoves[from] & ^b.Occupied[color] }},
+	}
 
-	kingSq := bits.TrailingZeros64(uint64(temp.Kings[attackerColor]))
-	return !IsSquareAttacked(kingSq, &temp, 1-attackerColor)
+	for _, p := range pieceLoops {
+		for bb := p.bb; bb != 0; {
+			from := int8(PopLSB(&bb))
+			moves := p.moves(int(from))
+			for moves != 0 {
+				to := int8(PopLSB(&moves))
+				if to < 0 || to > 63 {
+					continue // skip invalid squares
+				}
+				if IsMoveLegal(b, from, to, 0) {
+					return true
+				}
+			}
+		}
+	}
+
+	// Castling
+	if CanCastle(b, color, true) || CanCastle(b, color, false) {
+		return true
+	}
+	log.Println("no legal moves")
+	return false
 }
 
 func IsSquareAttacked(sq int, board *Board, attackerColor int8) bool {
@@ -334,19 +385,71 @@ func IsSquareAttacked(sq int, board *Board, attackerColor int8) bool {
 	return false
 }
 
-func MakeMove(board *Board, from, to int8, promoteTo int8) Move {
+func (b *Board) IsInCheck(color int8) bool {
+	kingSq := bits.TrailingZeros64(uint64(b.Kings[color]))
+	return IsSquareAttacked(kingSq, b, 1-color)
+}
 
-	log.Println(from, to, promoteTo)
+func IsMoveLegal(board *Board, from, to, promoteTo int8) bool {
+	color := int8((board.Flags&WhiteToMove)>>4) ^ 1
+	if GetPieceType(board, from, color) == -1 {
+		log.Println("illegal move cause tried to move empty square: ", IndexToSqaureName(from), IndexToSqaureName(to), color)
+		return false // cannot move from empty square
+	}
+
+	temp := *board
+	MakeMove(&temp, from, to, promoteTo, true)
+
+	attackerColor := int8((board.Flags&WhiteToMove)>>4) ^ 1
+	kingSq := bits.TrailingZeros64(uint64(temp.Kings[attackerColor]))
+	if IsSquareAttacked(kingSq, &temp, 1-attackerColor) {
+		log.Println("illegal move cause king under attack: ", IndexToSqaureName(from), IndexToSqaureName(to), color)
+	}
+	return !IsSquareAttacked(kingSq, &temp, 1-attackerColor)
+}
+
+func MakeMove(board *Board, from, to int8, promoteTo int8, testingFuture bool) Move {
+
 	fromBB := Bitboard(1) << from
 	toBB := Bitboard(1) << to
 	color := int8((board.Flags&WhiteToMove)>>4) ^ 1
 	enemyColor := 1 - color
-
 	movingPiece := GetPieceType(board, from, color)
-	log.Println("mving piece", movingPiece, from, color)
 	capturedPiece := GetPieceType(board, to, enemyColor)
-
 	newHash := board.Hash // Start incremental hash updates
+
+	if !testingFuture {
+		log.Println("moving piece", IndexToSqaureName(from), IndexToSqaureName(to))
+	}
+
+	if movingPiece == King && abs(int(to-from)) == 2 {
+		var rookFrom, rookTo int8
+		if to > from {
+			rookFrom = to + 1
+			rookTo = to - 1
+		} else {
+			rookFrom = to - 2
+			rookTo = to + 1
+		}
+		rookFromBB := Bitboard(1) << rookFrom
+		rookToBB := Bitboard(1) << rookTo
+
+		if (board.Rooks[color] & rookFromBB) != 0 {
+			// remove and re-add rook in hash
+			newHash ^= zobristPieces[color][Rook][rookFrom]
+			newHash ^= zobristPieces[color][Rook][rookTo]
+
+			// move rook bits
+			board.Rooks[color] &^= rookFromBB
+			board.Rooks[color] |= rookToBB
+
+			// update occupied for rook
+			board.Occupied[color] &^= rookFromBB
+			board.Occupied[color] |= rookToBB
+		} else {
+			log.Printf("Expected rook for castling not found at %s", IndexToSqaureName(rookFrom))
+		}
+	}
 
 	// Remove moving piece from source
 	if movingPiece >= 0 {
@@ -439,7 +542,6 @@ func MakeMove(board *Board, from, to int8, promoteTo int8) Move {
 	}
 
 	// Add piece to destination in hash
-	log.Println(color, finalPiece, to)
 	newHash ^= zobristPieces[color][finalPiece][to]
 
 	// Update en passant square
@@ -474,6 +576,63 @@ func MakeMove(board *Board, from, to int8, promoteTo int8) Move {
 	// Update hash
 	board.Hash = newHash
 	return Move{From: from, To: to, Promotion: promoteTo}
+}
+
+func CanCastle(b *Board, color int8, kingSide bool) bool {
+	rights := b.Flags & 0x0F
+	if color == White {
+		if kingSide && (rights&WK == 0) {
+			return false
+		}
+		if !kingSide && (rights&WQ == 0) {
+			return false
+		}
+	} else {
+		if kingSide && (rights&BK == 0) {
+			return false
+		}
+		if !kingSide && (rights&BQ == 0) {
+			return false
+		}
+	}
+
+	// Squares between king and rook must be empty
+	var between Bitboard
+	var kingPos int
+	if color == White {
+		kingPos = 4 // e1
+		if kingSide {
+			between = Bitboard(0x60)
+		} else {
+			between = Bitboard(0x0E)
+		}
+	} else {
+		kingPos = 60 // e8
+		if kingSide {
+			between = Bitboard(0x6000000000000000)
+		} else {
+			between = Bitboard(0x0E00000000000000)
+		}
+	}
+	if b.Occupied[White]|b.Occupied[Black]&between != 0 {
+		return false
+	}
+
+	// King must not be in check, and squares it moves over must not be attacked
+	kingSquares := []int{kingPos}
+	if kingSide {
+		kingSquares = append(kingSquares, kingPos+1, kingPos+2)
+	} else {
+		kingSquares = append(kingSquares, kingPos-1, kingPos-2)
+	}
+
+	for _, sq := range kingSquares {
+		if IsSquareAttacked(sq, b, 1-color) {
+			return false
+		}
+	}
+
+	return true
 }
 
 func ComputeHash(b *Board) uint64 {
@@ -589,39 +748,4 @@ func (b *Board) ToByteArray() []byte {
 		bytes[i] = byte(s)
 	}
 	return bytes
-}
-
-func (b *Board) ToPGN(moveHistory []Move) string {
-	var pgn string
-	for i, move := range moveHistory {
-		if i%2 == 0 {
-			pgn += fmt.Sprintf("%d. %s ", i/2+1, moveToString(move))
-		} else {
-			pgn += fmt.Sprintf("%s ", moveToString(move))
-		}
-	}
-	return pgn
-}
-
-func moveToString(move Move) string {
-	from := squareToString(move.From)
-	to := squareToString(move.To)
-	promo := ""
-	switch move.Promotion {
-	case Rook:
-		promo = "R"
-	case Knight:
-		promo = "N"
-	case Bishop:
-		promo = "B"
-	case Queen:
-		promo = "Q"
-	}
-	return from + to + promo
-}
-
-func squareToString(s int8) string {
-	file := s % 8
-	rank := s / 8
-	return string('a'+file) + string('1'+rank)
 }

@@ -24,3 +24,9 @@ publish-hash:
 # Optional: tag with date (useful for tracking versions)
 publish-date:
 	docker buildx build -t $(IMAGE):$(shell date +%Y%m%d-%H%M%S) --push .
+
+
+# --- SCRIPTS ---
+
+run:
+	go run .\cmd\server\main.go

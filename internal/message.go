@@ -23,6 +23,9 @@ var ServerCmds = struct {
 	MoveHappend          MsgType
 	InvalidMove          MsgType
 	GameState            MsgType
+	TimeStatus           MsgType
+	HpStatus             MsgType
+	CardStatus           MsgType
 }{
 	Ping:                 1,
 	OutMsgUpdateVariable: 2,
@@ -34,6 +37,9 @@ var ServerCmds = struct {
 	MoveHappend:          15,
 	InvalidMove:          16,
 	GameState:            20,
+	TimeStatus:           24,
+	HpStatus:             25,
+	CardStatus:           26,
 }
 
 var ClientCmds = struct {

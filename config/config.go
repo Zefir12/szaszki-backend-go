@@ -7,9 +7,12 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"reflect"
 	"strconv"
 	"strings"
 	"sync"
+
+	"github.com/joho/godotenv"
 )
 
 type ConfigValues struct {
@@ -28,6 +31,49 @@ type Config struct {
 
 // Singleton instance
 var Instance = &Config{}
+
+func loadFromEnv(target interface{}) {
+	val := reflect.ValueOf(target).Elem()
+	typ := val.Type()
+
+	for i := 0; i < val.NumField(); i++ {
+		field := val.Field(i)
+		fieldType := typ.Field(i)
+		envKey := fieldType.Tag.Get("json") // use json tag as env key
+
+		if envKey == "" || envKey == "-" {
+			continue
+		}
+
+		envVal := os.Getenv(envKey)
+		if envVal == "" {
+			continue
+		}
+
+		switch field.Kind() {
+		case reflect.String:
+			field.SetString(envVal)
+
+		case reflect.Int:
+			if n, err := strconv.Atoi(envVal); err == nil {
+				field.SetInt(int64(n))
+			}
+
+		case reflect.Int64:
+			if n, err := strconv.ParseInt(envVal, 10, 64); err == nil {
+				field.SetInt(n)
+			}
+
+		default:
+			// Custom type: IntOrString
+			if field.Type().Name() == "IntOrString" {
+				if n, err := strconv.Atoi(envVal); err == nil {
+					field.SetInt(int64(n))
+				}
+			}
+		}
+	}
+}
 
 func (c *Config) Get() (*ConfigValues, error) {
 	c.mu.Lock()
@@ -52,7 +98,10 @@ func (c *Config) Get() (*ConfigValues, error) {
 	if isProd {
 		cfg, err = c.fetchProdConfig()
 	} else {
+		_ = godotenv.Load()
+
 		cfg = &ConfigValues{}
+		loadFromEnv(cfg)
 	}
 
 	if err != nil {
