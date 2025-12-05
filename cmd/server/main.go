@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/rs/zerolog"
+	adminServer "github.com/zefir/szaszki-go-backend/admin"
 	"github.com/zefir/szaszki-go-backend/config"
 	authclient "github.com/zefir/szaszki-go-backend/grpc"
 	"github.com/zefir/szaszki-go-backend/internal"
@@ -70,6 +71,7 @@ func main() {
 
 	// Start healthcheck server in the background
 	go startHealthServer()
+	go adminServer.StartAdminServer()
 
 	go logRuntimeStats()
 	authclient.Init(conn)

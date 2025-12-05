@@ -289,6 +289,10 @@ func abs(x int) int {
 	return x
 }
 
+func (board *Board) GetPieceType(square int8, color int8) int {
+	return GetPieceType(board, square, color)
+}
+
 func GetPieceType(board *Board, square int8, color int8) int {
 	bb := Bitboard(1) << square
 	if board.Pawns[color]&bb != 0 {
@@ -393,7 +397,7 @@ func (b *Board) IsInCheck(color int8) bool {
 func IsMoveLegal(board *Board, from, to, promoteTo int8) bool {
 	color := int8((board.Flags&WhiteToMove)>>4) ^ 1
 	if GetPieceType(board, from, color) == -1 {
-		log.Println("illegal move cause tried to move empty square: ", IndexToSqaureName(from), IndexToSqaureName(to), color)
+		//log.Println("illegal move cause tried to move empty square: ", IndexToSqaureName(from), IndexToSqaureName(to), color)
 		return false // cannot move from empty square
 	}
 
@@ -403,9 +407,86 @@ func IsMoveLegal(board *Board, from, to, promoteTo int8) bool {
 	attackerColor := int8((board.Flags&WhiteToMove)>>4) ^ 1
 	kingSq := bits.TrailingZeros64(uint64(temp.Kings[attackerColor]))
 	if IsSquareAttacked(kingSq, &temp, 1-attackerColor) {
-		log.Println("illegal move cause king under attack: ", IndexToSqaureName(from), IndexToSqaureName(to), color)
+		//log.Println("illegal move cause king under attack: ", IndexToSqaureName(from), IndexToSqaureName(to), color)
 	}
 	return !IsSquareAttacked(kingSq, &temp, 1-attackerColor)
+}
+
+func (b *Board) GetAllPiecesThatCanMoveThisTurn(color int8) []int8 {
+	pieces := []int8{}
+	occupied := b.Occupied[White] | b.Occupied[Black]
+
+	// Iterate pieces by type
+	pieceLoops := []struct {
+		bb    Bitboard
+		moves func(from int) Bitboard
+	}{
+		{b.Pawns[color], func(from int) Bitboard {
+			single := SinglePawnPush(Bitboard(1)<<from, ^occupied, color == White)
+			double := DoublePawnPush(Bitboard(1)<<from, ^occupied, color == White)
+			attacks := PawnAttacks(Bitboard(1)<<from, b.Occupied[1-color], color == White)
+
+			// Check en passant
+			var enPassant Bitboard
+			if b.EnPassantSquare >= 0 {
+				enPassantBB := Bitboard(1) << b.EnPassantSquare
+				enPassant = PawnAttacks(Bitboard(1)<<from, enPassantBB, color == White)
+			}
+
+			return single | double | attacks | enPassant
+		}},
+		{b.Knights[color], func(from int) Bitboard {
+			return knightMoves[from] & ^b.Occupied[color]
+		}},
+		{b.Bishops[color], func(from int) Bitboard {
+			return slidingAttacks(from, occupied, directions["bishop"]) & ^b.Occupied[color]
+		}},
+		{b.Rooks[color], func(from int) Bitboard {
+			return slidingAttacks(from, occupied, directions["rook"]) & ^b.Occupied[color]
+		}},
+		{b.Queens[color], func(from int) Bitboard {
+			return slidingAttacks(from, occupied, append(directions["rook"], directions["bishop"]...)) & ^b.Occupied[color]
+		}},
+		{b.Kings[color], func(from int) Bitboard {
+			return kingMoves[from] & ^b.Occupied[color]
+		}},
+	}
+
+	// Debug: Print all pieces before checking moves
+	log.Println("=== Checking pieces for color", color, "===")
+	for pieceIdx, p := range pieceLoops {
+		pieceName := []string{"Pawn", "Knight", "Bishop", "Rook", "Queen", "King"}[pieceIdx]
+		tempBB := p.bb
+		if tempBB == 0 {
+			log.Printf("No %ss found", pieceName)
+		}
+		for tempBB != 0 {
+			sq := int8(bits.TrailingZeros64(uint64(tempBB)))
+			log.Printf("%s at %s (square %d)", pieceName, IndexToSqaureName(sq), sq)
+			tempBB &= tempBB - 1 // Clear the bit
+		}
+	}
+	log.Println("=== Starting move checks ===")
+
+	// Check regular piece moves - just check if they have ANY possible moves
+	for pieceIdx, p := range pieceLoops {
+		pieceName := []string{"Pawn", "Knight", "Bishop", "Rook", "Queen", "King"}[pieceIdx]
+		for bb := p.bb; bb != 0; {
+			from := int8(PopLSB(&bb))
+			moves := p.moves(int(from))
+
+			possibleMovesCount := CountBits(moves)
+
+			if possibleMovesCount > 0 {
+				log.Printf("✓ %s at %s CAN move (%d possible moves)", pieceName, IndexToSqaureName(from), possibleMovesCount)
+				pieces = append(pieces, int8(b.GetPieceType(from, color)))
+			} else {
+				log.Printf("✗ %s at %s CANNOT move (0 possible moves)", pieceName, IndexToSqaureName(from))
+			}
+		}
+	}
+
+	return pieces
 }
 
 func MakeMove(board *Board, from, to int8, promoteTo int8, testingFuture bool) Move {

@@ -121,9 +121,15 @@ func (g *GameSession) Run() {
 		// 	continue
 		// }
 
+		g.CardLogicRemoval(move.From)
+
 		madeMove := chess.MakeMove(&g.Board, move.From, move.To, move.PromoteTo, false)
 		g.MoveHistory = append(g.MoveHistory, madeMove)
 		g.BoardHistory = append(g.BoardHistory, g.Board)
+
+		g.CardLogicAdding(move.From)
+
+		g.BroadcastCards()
 
 		g.BroadcastMove(move.From, move.To, move.PromoteTo)
 
@@ -196,6 +202,67 @@ func (g *GameSession) BroadcastTime() {
 	for _, p := range g.Players {
 		_ = p.WriteMsg(ServerCmds.TimeStatus, payload)
 	}
+}
+
+func (g *GameSession) CardLogicRemoval(from int8) {
+	println("=== CardLogic Triggered ===")
+	println("Side to move:", g.SideToMove)
+	println("Piece moved from square:", from)
+
+	if g.SideToMove == chess.White {
+
+		piece := g.Board.GetPieceType(from, chess.Black)
+		println("White played piece type:", piece)
+
+		// Remove matching card
+		println("White cards BEFORE:", chess.CardListToString(g.WhiteCards))
+		for i, c := range g.WhiteCards {
+			enginePiece := chess.CardToEnginePiece(c)
+			println("Checking card:", chess.CardName(c), "-> enginePiece:", enginePiece)
+
+			if enginePiece == piece {
+				println("MATCH FOUND. Removing card:", chess.CardName(c))
+				g.WhiteCards = append(g.WhiteCards[:i], g.WhiteCards[i+1:]...)
+				break
+			}
+		}
+		println("White cards AFTER removal:", chess.CardListToString(g.WhiteCards))
+	} else {
+
+		piece := g.Board.GetPieceType(from, chess.White)
+		println("Black played piece type:", piece)
+
+		println("Black cards BEFORE:", chess.CardListToString(g.BlackCards))
+		for i, c := range g.BlackCards {
+			enginePiece := chess.CardToEnginePiece(c)
+			println("Checking card:", chess.CardName(c), "-> enginePiece:", enginePiece)
+
+			if enginePiece == piece {
+				println("MATCH FOUND. Removing card:", chess.CardName(c))
+				g.BlackCards = append(g.BlackCards[:i], g.BlackCards[i+1:]...)
+				break
+			}
+		}
+		println("Black cards AFTER removal:", chess.CardListToString(g.BlackCards))
+	}
+}
+
+func (g *GameSession) CardLogicAdding(from int8) {
+	if g.SideToMove == chess.White {
+		newCard := chess.GetRandomValidCard(&g.Board, chess.Black)
+		println("New card given to White:", chess.CardName(newCard))
+
+		g.WhiteCards = append(g.WhiteCards, newCard)
+		println("White cards FINAL:", chess.CardListToString(g.WhiteCards))
+
+	} else {
+		newCard := chess.GetRandomValidCard(&g.Board, chess.White)
+		println("New card given to Black:", chess.CardName(newCard))
+
+		g.BlackCards = append(g.BlackCards, newCard)
+		println("Black cards FINAL:", chess.CardListToString(g.BlackCards))
+	}
+	println("=== END CardLogic ===")
 }
 
 func (g *GameSession) BroadcastHp() {

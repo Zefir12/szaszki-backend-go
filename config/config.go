@@ -17,10 +17,11 @@ import (
 
 type ConfigValues struct {
 	// You can add extra keys as needed
-	Extra          map[string]interface{} `json:"-"`
-	WS_PORT        IntOrString            `json:"WS_PORT"`
-	GRPC_PORT      IntOrString            `json:"GRPC_PORT"`
-	NODE_GRPC_ADDR string                 `json:"NODE_GRPC_ADDR"`
+	Extra                 map[string]interface{} `json:"-"`
+	WS_PORT               IntOrString            `json:"WS_PORT"`
+	GRPC_PORT             IntOrString            `json:"GRPC_PORT"`
+	NODE_GRPC_ADDR        string                 `json:"NODE_GRPC_ADDR"`
+	ADMIN_ENDPOINT_SECRET string                 `json:ADMIN_ENDPOINT_SECRET`
 }
 
 type Config struct {
