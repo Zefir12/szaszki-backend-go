@@ -20,6 +20,7 @@ var ServerCmds = struct {
 	GameStarted          MsgType
 	GameDeclined         MsgType
 	GameSearchTimeout    MsgType
+	GameFullStatus       MsgType
 	MoveHappend          MsgType
 	InvalidMove          MsgType
 	GameState            MsgType
@@ -34,6 +35,7 @@ var ServerCmds = struct {
 	GameStarted:          5,
 	GameDeclined:         6,
 	GameSearchTimeout:    7,
+	GameFullStatus:       8,
 	MoveHappend:          15,
 	InvalidMove:          16,
 	GameState:            20,

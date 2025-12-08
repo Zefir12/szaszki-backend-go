@@ -5,6 +5,8 @@ import (
 	"log"
 	"math/bits"
 	"math/rand"
+
+	"github.com/zefir/szaszki-go-backend/config"
 )
 
 //https://en.wikipedia.org/wiki/Bitboard
@@ -413,6 +415,11 @@ func IsMoveLegal(board *Board, from, to, promoteTo int8) bool {
 }
 
 func (b *Board) GetAllPiecesThatCanMoveThisTurn(color int8) []int8 {
+	cfg, err := config.Instance.Get()
+	if err != nil {
+		log.Fatalf("failed to load config: %v", err)
+	}
+
 	pieces := []int8{}
 	occupied := b.Occupied[White] | b.Occupied[Black]
 
@@ -452,21 +459,23 @@ func (b *Board) GetAllPiecesThatCanMoveThisTurn(color int8) []int8 {
 		}},
 	}
 
-	// Debug: Print all pieces before checking moves
-	log.Println("=== Checking pieces for color", color, "===")
-	for pieceIdx, p := range pieceLoops {
-		pieceName := []string{"Pawn", "Knight", "Bishop", "Rook", "Queen", "King"}[pieceIdx]
-		tempBB := p.bb
-		if tempBB == 0 {
-			log.Printf("No %ss found", pieceName)
+	if cfg.SHOW_EXTRA_LOGS {
+		// Debug: Print all pieces before checking moves
+		log.Println("=== Checking pieces for color", color, "===")
+		for pieceIdx, p := range pieceLoops {
+			pieceName := []string{"Pawn", "Knight", "Bishop", "Rook", "Queen", "King"}[pieceIdx]
+			tempBB := p.bb
+			if tempBB == 0 {
+				log.Printf("No %ss found", pieceName)
+			}
+			for tempBB != 0 {
+				sq := int8(bits.TrailingZeros64(uint64(tempBB)))
+				log.Printf("%s at %s (square %d)", pieceName, IndexToSqaureName(sq), sq)
+				tempBB &= tempBB - 1 // Clear the bit
+			}
 		}
-		for tempBB != 0 {
-			sq := int8(bits.TrailingZeros64(uint64(tempBB)))
-			log.Printf("%s at %s (square %d)", pieceName, IndexToSqaureName(sq), sq)
-			tempBB &= tempBB - 1 // Clear the bit
-		}
+		log.Println("=== Starting move checks ===")
 	}
-	log.Println("=== Starting move checks ===")
 
 	// Check regular piece moves - just check if they have ANY possible moves
 	for pieceIdx, p := range pieceLoops {
@@ -478,10 +487,14 @@ func (b *Board) GetAllPiecesThatCanMoveThisTurn(color int8) []int8 {
 			possibleMovesCount := CountBits(moves)
 
 			if possibleMovesCount > 0 {
-				log.Printf("✓ %s at %s CAN move (%d possible moves)", pieceName, IndexToSqaureName(from), possibleMovesCount)
+				if cfg.SHOW_EXTRA_LOGS {
+					log.Printf("✓ %s at %s CAN move (%d possible moves)", pieceName, IndexToSqaureName(from), possibleMovesCount)
+				}
 				pieces = append(pieces, int8(b.GetPieceType(from, color)))
 			} else {
-				log.Printf("✗ %s at %s CANNOT move (0 possible moves)", pieceName, IndexToSqaureName(from))
+				if cfg.SHOW_EXTRA_LOGS {
+					log.Printf("✗ %s at %s CANNOT move (0 possible moves)", pieceName, IndexToSqaureName(from))
+				}
 			}
 		}
 	}

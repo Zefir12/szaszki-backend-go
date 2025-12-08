@@ -21,7 +21,8 @@ type ConfigValues struct {
 	WS_PORT               IntOrString            `json:"WS_PORT"`
 	GRPC_PORT             IntOrString            `json:"GRPC_PORT"`
 	NODE_GRPC_ADDR        string                 `json:"NODE_GRPC_ADDR"`
-	ADMIN_ENDPOINT_SECRET string                 `json:ADMIN_ENDPOINT_SECRET`
+	ADMIN_ENDPOINT_SECRET string                 `json:"ADMIN_ENDPOINT_SECRET"`
+	SHOW_EXTRA_LOGS       bool                   `json:"SHOW_EXTRA_LOGS"`
 }
 
 type Config struct {
@@ -63,6 +64,14 @@ func loadFromEnv(target interface{}) {
 		case reflect.Int64:
 			if n, err := strconv.ParseInt(envVal, 10, 64); err == nil {
 				field.SetInt(n)
+			}
+
+		case reflect.Bool:
+			switch strings.ToLower(envVal) {
+			case "1", "true", "yes", "on":
+				field.SetBool(true)
+			case "0", "false", "no", "off":
+				field.SetBool(false)
 			}
 
 		default:

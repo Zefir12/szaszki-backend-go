@@ -191,7 +191,6 @@ func (m *Matchmaker) ForceProcess() {
 }
 
 func (m *Matchmaker) startGame(players []*Client) {
-
 	logger.Log.Info().
 		Uint32("whitePlayerId", players[0].UserID).
 		Uint32("blackPlayerId", players[1].UserID).

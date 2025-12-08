@@ -73,7 +73,7 @@ func main() {
 	go startHealthServer()
 	go adminServer.StartAdminServer()
 
-	go logRuntimeStats()
+	//go logRuntimeStats()
 	authclient.Init(conn)
 
 	internal.InitGameKeeper()

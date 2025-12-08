@@ -2,6 +2,7 @@ package internal
 
 import (
 	"encoding/binary"
+	"fmt"
 	"io"
 	"net"
 	"sync"
@@ -111,6 +112,16 @@ func handleConn(conn net.Conn) {
 			// Send auth success
 			WriteMsgToSingleConn(conn, ServerCmds.ClientAuthenticated, payload)
 
+			//get all active game of user and send it to him
+			games, ok := keeper.GetActiveGamesWithClientUID(userID)
+			if ok {
+				for _, g := range games {
+					fmt.Println("Active game:", g.ID)
+					g.BroadcastGameState(client)
+					//broadcast games
+				}
+			}
+
 			PutBuffer(bufPtr)
 			continue
 		}
@@ -139,39 +150,5 @@ func closeConn(client *Client, connID uint64) { // Connection closed, remove thi
 		logger.Log.Info().Uint32("clientId", client.UserID).Int("remainingConns", remainingConns).Msg("Connection closed, client has remaining connections")
 	}
 }
-
-// func handleConn(conn net.Conn) {
-// 	_, err := ws.Upgrade(conn)
-// 	if err != nil {
-// 		log.Println("WebSocket upgrade error:", err)
-// 		conn.Close()
-// 		return
-// 	}
-// 	defer conn.Close()
-// 	buf := make([]byte, 6000) // max buffer size
-// 	for {
-
-// 		n, err := conn.Read(buf)
-// 		if err != nil {
-// 			if err == io.EOF {
-// 				return
-// 			}
-// 			if strings.Contains(err.Error(), "wsarecv") {
-// 				return
-// 			}
-// 			log.Println("Frame read error:", err)
-// 		}
-
-// 		if n < 2 {
-// 			log.Println("Received too few bytes to parse MsgType")
-// 			continue
-// 		}
-
-// 		msgType := MsgType(binary.BigEndian.Uint16(buf[0:2]))
-// 		payload := buf[2:n]
-
-// 		handleMessage(conn, msgType, payload)
-// 	}
-// }
 
 //https://go101.org/article/channel.html

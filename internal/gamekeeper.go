@@ -61,6 +61,28 @@ func (g *GameKeeper) GetGame(id uint32) (*GameSession, bool) {
 	return game, exists
 }
 
+func (g *GameKeeper) GetActiveGamesWithClientUID(uid uint32) ([]*GameSession, bool) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
+	var result []*GameSession
+
+	for _, game := range g.games {
+		for _, player := range game.Players {
+			if player.UserID == uid {
+				result = append(result, game)
+				break
+			}
+		}
+	}
+
+	if len(result) == 0 {
+		return nil, false
+	}
+
+	return result, true
+}
+
 func (g *GameKeeper) ListGames() []*GameSession {
 	g.mu.Lock()
 	defer g.mu.Unlock()

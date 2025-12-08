@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/zefir/szaszki-go-backend/config"
 	"github.com/zefir/szaszki-go-backend/grpc"
 	bh "github.com/zefir/szaszki-go-backend/internal/binaryHelpers"
 	chess "github.com/zefir/szaszki-go-backend/internal/chessengine"
@@ -55,10 +56,15 @@ type GameStartMsg struct {
 }
 
 func (g *GameSession) Run() {
+	cfg, err := config.Instance.Get()
+	if err != nil {
+		log.Fatalf("failed to load config: %v", err)
+	}
 	logger.Log.Info().Uint32("gameId", g.ID).Msg("Game started!")
 
 	g.Board = chess.NewStartingPosition()
 	g.SideToMove = chess.White
+	g.GameActive = true
 
 	// Initialize timers
 	g.WhiteTime = DefaultWhiteTime
@@ -121,17 +127,16 @@ func (g *GameSession) Run() {
 		// 	continue
 		// }
 
-		g.CardLogicRemoval(move.From)
-
+		removedCardIndex := g.CardLogicRemoval(move.From, cfg)
 		madeMove := chess.MakeMove(&g.Board, move.From, move.To, move.PromoteTo, false)
 		g.MoveHistory = append(g.MoveHistory, madeMove)
 		g.BoardHistory = append(g.BoardHistory, g.Board)
 
-		g.CardLogicAdding(move.From)
+		g.CardLogicAdding(move.From, removedCardIndex, cfg)
 
 		g.BroadcastCards()
 
-		g.BroadcastMove(move.From, move.To, move.PromoteTo)
+		g.BroadcastMove(move.From, move.To, move.PromoteTo, cfg)
 
 		elapsed := time.Since(g.LastMoveTime)
 
@@ -173,11 +178,13 @@ func IndexToSqaureName(index int8) string {
 	return fmt.Sprintf("%c%d", 'a'+file, rank)
 }
 
-func (g *GameSession) BroadcastMove(from, to, promote int8) {
+func (g *GameSession) BroadcastMove(from, to, promote int8, cfg *config.ConfigValues) {
+	if cfg.SHOW_EXTRA_LOGS {
+		log.Printf("Broadcasting move: from=%s, to=%s, promote=%d, g.ID=%d",
+			IndexToSqaureName(from), IndexToSqaureName(to), promote, g.ID,
+		)
+	}
 
-	log.Printf("Broadcasting move: from=%s, to=%s, promote=%d, g.ID=%d",
-		IndexToSqaureName(from), IndexToSqaureName(to), promote, g.ID,
-	)
 	payload, err := bh.Pack([]bh.FieldType{bh.Int8, bh.Int8, bh.Int8, bh.Uint32}, []any{from, to, promote, g.ID})
 	if err != nil {
 		logger.Log.Warn().Err(err).Uint32("gameId", g.ID).Msg("couldnt pack move")
@@ -204,65 +211,102 @@ func (g *GameSession) BroadcastTime() {
 	}
 }
 
-func (g *GameSession) CardLogicRemoval(from int8) {
-	println("=== CardLogic Triggered ===")
-	println("Side to move:", g.SideToMove)
-	println("Piece moved from square:", from)
+func (g *GameSession) CardLogicRemoval(from int8, cfg *config.ConfigValues) int {
+	if cfg.SHOW_EXTRA_LOGS {
+		println("=== CardLogic Triggered ===")
+		println("Side to move:", g.SideToMove)
+		println("Piece moved from square:", from)
+	}
 
 	if g.SideToMove == chess.White {
 
 		piece := g.Board.GetPieceType(from, chess.Black)
-		println("White played piece type:", piece)
+		if cfg.SHOW_EXTRA_LOGS {
+			println("White played piece type:", piece)
 
-		// Remove matching card
-		println("White cards BEFORE:", chess.CardListToString(g.WhiteCards))
+			// Remove matching card
+			println("White cards BEFORE:", chess.CardListToString(g.WhiteCards))
+		}
 		for i, c := range g.WhiteCards {
 			enginePiece := chess.CardToEnginePiece(c)
-			println("Checking card:", chess.CardName(c), "-> enginePiece:", enginePiece)
+			if cfg.SHOW_EXTRA_LOGS {
+				println("Checking card:", chess.CardName(c), "-> enginePiece:", enginePiece)
+			}
 
 			if enginePiece == piece {
-				println("MATCH FOUND. Removing card:", chess.CardName(c))
-				g.WhiteCards = append(g.WhiteCards[:i], g.WhiteCards[i+1:]...)
-				break
+				if cfg.SHOW_EXTRA_LOGS {
+					println("MATCH FOUND. Removing card:", chess.CardName(c))
+				}
+				//g.WhiteCards = append(g.WhiteCards[:i], g.WhiteCards[i+1:]...)
+				return i
 			}
 		}
-		println("White cards AFTER removal:", chess.CardListToString(g.WhiteCards))
+		if cfg.SHOW_EXTRA_LOGS {
+			println("White cards AFTER removal:", chess.CardListToString(g.WhiteCards))
+		}
+		return 0
 	} else {
 
 		piece := g.Board.GetPieceType(from, chess.White)
-		println("Black played piece type:", piece)
+		if cfg.SHOW_EXTRA_LOGS {
+			println("Black played piece type:", piece)
 
-		println("Black cards BEFORE:", chess.CardListToString(g.BlackCards))
+			println("Black cards BEFORE:", chess.CardListToString(g.BlackCards))
+		}
 		for i, c := range g.BlackCards {
 			enginePiece := chess.CardToEnginePiece(c)
-			println("Checking card:", chess.CardName(c), "-> enginePiece:", enginePiece)
-
+			if cfg.SHOW_EXTRA_LOGS {
+				println("Checking card:", chess.CardName(c), "-> enginePiece:", enginePiece)
+			}
 			if enginePiece == piece {
-				println("MATCH FOUND. Removing card:", chess.CardName(c))
-				g.BlackCards = append(g.BlackCards[:i], g.BlackCards[i+1:]...)
-				break
+				if cfg.SHOW_EXTRA_LOGS {
+					println("MATCH FOUND. Removing card:", chess.CardName(c))
+				}
+				//g.BlackCards = append(g.BlackCards[:i], g.BlackCards[i+1:]...)
+				return i
 			}
 		}
-		println("Black cards AFTER removal:", chess.CardListToString(g.BlackCards))
+		if cfg.SHOW_EXTRA_LOGS {
+			println("Black cards AFTER removal:", chess.CardListToString(g.BlackCards))
+		}
+		return 0
 	}
 }
 
-func (g *GameSession) CardLogicAdding(from int8) {
+func (g *GameSession) CardLogicAdding(from int8, removedCardIndex int, cfg *config.ConfigValues) {
 	if g.SideToMove == chess.White {
 		newCard := chess.GetRandomValidCard(&g.Board, chess.Black)
-		println("New card given to White:", chess.CardName(newCard))
+		if cfg.SHOW_EXTRA_LOGS {
+			println("New card given to White:", chess.CardName(newCard))
+		}
+		if removedCardIndex >= 0 && removedCardIndex < len(g.WhiteCards) {
+			// Replace the removed card's slot with the new one
+			g.WhiteCards[removedCardIndex] = newCard
+		} else {
+			// Fallback: append if index is invalid
+			g.WhiteCards = append(g.WhiteCards, newCard)
+		}
 
-		g.WhiteCards = append(g.WhiteCards, newCard)
-		println("White cards FINAL:", chess.CardListToString(g.WhiteCards))
-
+		if cfg.SHOW_EXTRA_LOGS {
+			println("White cards FINAL:", chess.CardListToString(g.WhiteCards))
+		}
 	} else {
 		newCard := chess.GetRandomValidCard(&g.Board, chess.White)
-		println("New card given to Black:", chess.CardName(newCard))
-
-		g.BlackCards = append(g.BlackCards, newCard)
-		println("Black cards FINAL:", chess.CardListToString(g.BlackCards))
+		if cfg.SHOW_EXTRA_LOGS {
+			println("New card given to Black:", chess.CardName(newCard))
+		}
+		if removedCardIndex >= 0 && removedCardIndex < len(g.BlackCards) {
+			g.BlackCards[removedCardIndex] = newCard
+		} else {
+			g.BlackCards = append(g.BlackCards, newCard)
+		}
+		if cfg.SHOW_EXTRA_LOGS {
+			println("Black cards FINAL:", chess.CardListToString(g.BlackCards))
+		}
 	}
-	println("=== END CardLogic ===")
+	if cfg.SHOW_EXTRA_LOGS {
+		println("=== END CardLogic ===")
+	}
 }
 
 func (g *GameSession) BroadcastHp() {
@@ -373,7 +417,14 @@ func (g *GameSession) saveGame() {
 	}
 }
 
-func (g *GameSession) broadcastGameState() {
+func (g *GameSession) BroadcastGameState(targetClient *Client) {
+	cfg, err := config.Instance.Get()
+	if err != nil {
+		log.Fatalf("failed to load config: %v", err)
+	}
+	if cfg.SHOW_EXTRA_LOGS {
+		println("Triggered brodcasting gamestate for: ", targetClient.UserID)
+	}
 	if !g.GameActive {
 		return
 	}
@@ -388,8 +439,15 @@ func (g *GameSession) broadcastGameState() {
 	}
 
 	for i, player := range g.Players {
-		if player.ConnCount() == 0 {
+		if cfg.SHOW_EXTRA_LOGS {
+			println("game state dartta: : ", player.UserID, targetClient.UserID, player.ConnCount())
+		}
+
+		if player.ConnCount() == 0 || targetClient.UserID != player.UserID {
 			continue
+		}
+		if cfg.SHOW_EXTRA_LOGS {
+			println("Sending gamestate to: ", player.UserID)
 		}
 
 		sideToMove := g.Board.SideToMove()
