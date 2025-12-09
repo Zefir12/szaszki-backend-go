@@ -4,3 +4,4 @@ tests/shardingBench/results/*
 .env
 main.exe
 tmp/main.exe
+
