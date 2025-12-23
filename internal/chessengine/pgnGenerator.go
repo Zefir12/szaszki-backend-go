@@ -3,6 +3,7 @@ package chess
 import (
 	"fmt"
 	"math/bits"
+	"strconv"
 )
 
 func (b *Board) ToPGN(moveHistory []Move) string {
@@ -164,16 +165,16 @@ func moveToSAN(board *Board, move Move) string {
 	if piece != Pawn { // only pieces need this
 		needFile, needRank := disambiguate(board, move, int8(piece), color)
 		if needFile {
-			san += string('a' + (from % 8))
+			san += string('a' + rune(from%8))
 		}
 		if needRank {
-			san += string('1' + (from / 8))
+			san += strconv.Itoa(int(from/8) + 1)
 		}
 	}
 
 	// ---- pawn capture: add file ----
 	if piece == Pawn && capturedPiece != -1 {
-		san += string('a' + (from % 8))
+		san += string('a' + rune(from%8))
 	}
 
 	// ---- capture symbol ----
@@ -204,5 +205,6 @@ func moveToSAN(board *Board, move Move) string {
 func squareToString(s int8) string {
 	file := s % 8
 	rank := s / 8
-	return string('a'+file) + string('1'+rank)
+	// Fixed: properly convert file to letter and rank to number
+	return string('a'+rune(file)) + strconv.Itoa(int(rank)+1)
 }

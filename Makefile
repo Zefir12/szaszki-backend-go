@@ -30,3 +30,9 @@ publish-date:
 
 run:
 	go run .\cmd\server\main.go
+
+# --- TESTING ---
+
+# Run all tests with pretty output
+test:
+	gotestsum --format testname ./internal/chessengine

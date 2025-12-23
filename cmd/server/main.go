@@ -83,7 +83,7 @@ func main() {
 	lerr := internal.ListenAndServe("0.0.0.0:" + strconv.Itoa(int(cfg.WS_PORT)))
 	if lerr != nil {
 		log.Fatal("WebSocket server error:", err)
-		logger.Log.Panic().Str("status", "error").Msg("Somthing went wrong with server startup")
+		logger.Log.Panic().Str("status", "error").Msg("Something went wrong with server startup")
 	}
 	fmt.Println("Server closeing")
 }

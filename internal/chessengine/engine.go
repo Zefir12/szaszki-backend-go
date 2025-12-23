@@ -154,7 +154,7 @@ func IndexToSqaureName(index int8) string {
 	}
 
 	file := index % 8
-	rank := 8 - (index / 8)
+	rank := (index / 8) + 1 // Fixed: rank 0 -> 1, rank 1 -> 2, etc.
 
 	return fmt.Sprintf("%c%d", 'a'+file, rank)
 }
@@ -258,6 +258,7 @@ func NewStartingPosition() Board {
 
 	b.EnPassantSquare = -1
 	b.Hash = ComputeHash(&b)
+	b.FullmoveNumber = 1
 
 	return b
 }
@@ -397,21 +398,33 @@ func (b *Board) IsInCheck(color int8) bool {
 }
 
 func IsMoveLegal(board *Board, from, to, promoteTo int8) bool {
-	color := int8((board.Flags&WhiteToMove)>>4) ^ 1
-	if GetPieceType(board, from, color) == -1 {
-		//log.Println("illegal move cause tried to move empty square: ", IndexToSqaureName(from), IndexToSqaureName(to), color)
-		return false // cannot move from empty square
+	color := Black
+	if board.Flags&WhiteToMove != 0 {
+		color = White
+	}
+
+	piece := GetPieceType(board, from, int8(color))
+	if piece == -1 {
+		return false
+	}
+
+	// Basic pawn direction check
+	if piece == Pawn {
+		direction := to - from
+		if color == White && direction <= 0 {
+			return false // White pawns must move forward (positive direction)
+		}
+		if color == Black && direction >= 0 {
+			return false // Black pawns must move backward (negative direction)
+		}
 	}
 
 	temp := *board
 	MakeMove(&temp, from, to, promoteTo, true)
 
-	attackerColor := int8((board.Flags&WhiteToMove)>>4) ^ 1
-	kingSq := bits.TrailingZeros64(uint64(temp.Kings[attackerColor]))
-	if IsSquareAttacked(kingSq, &temp, 1-attackerColor) {
-		//log.Println("illegal move cause king under attack: ", IndexToSqaureName(from), IndexToSqaureName(to), color)
-	}
-	return !IsSquareAttacked(kingSq, &temp, 1-attackerColor)
+	kingSq := bits.TrailingZeros64(uint64(temp.Kings[color]))
+	enemyColor := 1 - color
+	return !IsSquareAttacked(kingSq, &temp, int8(enemyColor))
 }
 
 func (b *Board) GetAllPiecesThatCanMoveThisTurn(color int8) []int8 {
@@ -477,23 +490,35 @@ func (b *Board) GetAllPiecesThatCanMoveThisTurn(color int8) []int8 {
 		log.Println("=== Starting move checks ===")
 	}
 
-	// Check regular piece moves - just check if they have ANY possible moves
+	// Check regular piece moves - verify they're actually LEGAL
 	for pieceIdx, p := range pieceLoops {
 		pieceName := []string{"Pawn", "Knight", "Bishop", "Rook", "Queen", "King"}[pieceIdx]
 		for bb := p.bb; bb != 0; {
 			from := int8(PopLSB(&bb))
 			moves := p.moves(int(from))
 
-			possibleMovesCount := CountBits(moves)
+			// Count LEGAL moves, not just pseudo-legal
+			legalMovesCount := 0
+			tempMoves := moves
+			for tempMoves != 0 {
+				to := int8(PopLSB(&tempMoves))
+				if to < 0 || to > 63 {
+					continue
+				}
+				// THIS IS THE KEY FIX: Check if the move is actually legal
+				if IsMoveLegal(b, from, to, 0) {
+					legalMovesCount++
+				}
+			}
 
-			if possibleMovesCount > 0 {
+			if legalMovesCount > 0 {
 				if cfg.SHOW_EXTRA_LOGS {
-					log.Printf("✓ %s at %s CAN move (%d possible moves)", pieceName, IndexToSqaureName(from), possibleMovesCount)
+					log.Printf("✓ %s at %s CAN move (%d legal moves)", pieceName, IndexToSqaureName(from), legalMovesCount)
 				}
 				pieces = append(pieces, int8(b.GetPieceType(from, color)))
 			} else {
 				if cfg.SHOW_EXTRA_LOGS {
-					log.Printf("✗ %s at %s CANNOT move (0 possible moves)", pieceName, IndexToSqaureName(from))
+					log.Printf("✗ %s at %s CANNOT move (0 legal moves)", pieceName, IndexToSqaureName(from))
 				}
 			}
 		}
@@ -506,10 +531,13 @@ func MakeMove(board *Board, from, to int8, promoteTo int8, testingFuture bool) M
 
 	fromBB := Bitboard(1) << from
 	toBB := Bitboard(1) << to
-	color := int8((board.Flags&WhiteToMove)>>4) ^ 1
+	color := Black // 0
+	if board.Flags&WhiteToMove != 0 {
+		color = White // 1
+	}
 	enemyColor := 1 - color
-	movingPiece := GetPieceType(board, from, color)
-	capturedPiece := GetPieceType(board, to, enemyColor)
+	movingPiece := GetPieceType(board, from, int8(color))
+	capturedPiece := GetPieceType(board, to, int8(enemyColor))
 	newHash := board.Hash // Start incremental hash updates
 
 	if !testingFuture {
@@ -708,7 +736,8 @@ func CanCastle(b *Board, color int8, kingSide bool) bool {
 			between = Bitboard(0x0E00000000000000)
 		}
 	}
-	if b.Occupied[White]|b.Occupied[Black]&between != 0 {
+	allOccupied := b.Occupied[White] | b.Occupied[Black]
+	if allOccupied&between != 0 {
 		return false
 	}
 

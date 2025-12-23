@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"net"
 	"sync"
 	"time"
 
@@ -43,16 +44,60 @@ const (
 )
 
 type PlayerMove struct {
-	From      int8
-	To        int8
-	PromoteTo int8
-	Player    *Client
+	From          int8
+	To            int8
+	PromoteTo     int8
+	CardsToReroll [5]int8
+	Player        *Client
 }
 
 type GameStartMsg struct {
 	GameMode  uint16 `json:"game_mode"`
 	PlayerIDs []int  `json:"player_ids"`
 	GameID    uint32 `json:"game_id"`
+}
+
+// to optimize later
+func (g *GameSession) runClock() {
+	ticker := time.NewTicker(500 * time.Millisecond)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		g.Mu.Lock()
+
+		if !g.GameActive {
+			g.Mu.Unlock()
+			return
+		}
+
+		now := time.Now()
+		elapsed := now.Sub(g.LastMoveTime)
+
+		if g.SideToMove == chess.White {
+			g.WhiteTime -= elapsed
+			if g.WhiteTime <= 0 {
+				g.WhiteTime = 0
+				g.GameActive = false
+				g.Mu.Unlock()
+				g.handleTimeLoss(chess.White)
+				return
+			}
+		} else {
+			g.BlackTime -= elapsed
+			if g.BlackTime <= 0 {
+				g.BlackTime = 0
+				g.GameActive = false
+				g.Mu.Unlock()
+				g.handleTimeLoss(chess.Black)
+				return
+			}
+		}
+
+		g.LastMoveTime = now
+		g.Mu.Unlock()
+
+		g.BroadcastTime()
+	}
 }
 
 func (g *GameSession) Run() {
@@ -62,9 +107,8 @@ func (g *GameSession) Run() {
 	}
 	logger.Log.Info().Uint32("gameId", g.ID).Msg("Game started!")
 
-	g.Board = chess.NewStartingPosition()
-	g.SideToMove = chess.White
-	g.GameActive = true
+	//g.Board = chess.NewStartingPosition()
+	//g.SideToMove = chess.White
 
 	// Initialize timers
 	g.WhiteTime = DefaultWhiteTime
@@ -106,6 +150,8 @@ func (g *GameSession) Run() {
 	g.BroadcastTime()
 	g.BroadcastHp()
 
+	go g.runClock()
+
 	// Game loop
 	for {
 		// wait for move from current player
@@ -127,30 +173,17 @@ func (g *GameSession) Run() {
 		// 	continue
 		// }
 
-		removedCardIndex := g.CardLogicRemoval(move.From, cfg)
+		removedCardIndexes := g.CardLogicRemoval(move.From, move.CardsToReroll, cfg)
+		fmt.Printf("tes56: %+v\n", removedCardIndexes)
 		madeMove := chess.MakeMove(&g.Board, move.From, move.To, move.PromoteTo, false)
 		g.MoveHistory = append(g.MoveHistory, madeMove)
 		g.BoardHistory = append(g.BoardHistory, g.Board)
 
-		g.CardLogicAdding(move.From, removedCardIndex, cfg)
+		g.CardLogicAdding(move.From, removedCardIndexes, cfg)
 
 		g.BroadcastCards()
 
 		g.BroadcastMove(move.From, move.To, move.PromoteTo, cfg)
-
-		elapsed := time.Since(g.LastMoveTime)
-
-		if g.SideToMove == chess.White {
-			g.WhiteTime -= elapsed
-			if g.WhiteTime < 0 {
-				g.WhiteTime = 0
-			}
-		} else {
-			g.BlackTime -= elapsed
-			if g.BlackTime < 0 {
-				g.BlackTime = 0
-			}
-		}
 
 		g.BroadcastTime()
 
@@ -165,6 +198,38 @@ func (g *GameSession) Run() {
 		// update side to move
 		g.SideToMove = 1 - g.SideToMove
 	}
+}
+
+func (g *GameSession) Surrender(client *Client) {
+	loserID := client.UserID
+	var winnerID uint32
+	for _, p := range g.Players {
+		if p.UserID != loserID {
+			winnerID = p.UserID
+			break
+		}
+	}
+
+	msg := fmt.Sprintf("Player %d surrendered. Player %d wins.", loserID, winnerID)
+	log.Println(msg)
+
+	payload, _ := json.Marshal(struct {
+		GameID uint32 `json:"game_id"`
+		Winner uint32 `json:"winner"`
+		Loser  uint32 `json:"loser"`
+		Reason string `json:"reason"`
+	}{
+		g.ID,
+		winnerID,
+		loserID,
+		"surrender",
+	})
+
+	for _, p := range g.Players {
+		_ = p.WriteMsg(ServerCmds.GameEnded, payload)
+	}
+
+	//g.saveGame()
 }
 
 func IndexToSqaureName(index int8) string {
@@ -211,99 +276,107 @@ func (g *GameSession) BroadcastTime() {
 	}
 }
 
-func (g *GameSession) CardLogicRemoval(from int8, cfg *config.ConfigValues) int {
+func (g *GameSession) CardLogicRemoval(from int8, cardsToReroll [5]int8, cfg *config.ConfigValues) []int {
 	if cfg.SHOW_EXTRA_LOGS {
 		println("=== CardLogic Triggered ===")
 		println("Side to move:", g.SideToMove)
 		println("Piece moved from square:", from)
 	}
 
-	if g.SideToMove == chess.White {
+	var removedCardIndexes []int
+	cards := &g.WhiteCards
+	opponent := chess.Black
 
-		piece := g.Board.GetPieceType(from, chess.Black)
-		if cfg.SHOW_EXTRA_LOGS {
-			println("White played piece type:", piece)
-
-			// Remove matching card
-			println("White cards BEFORE:", chess.CardListToString(g.WhiteCards))
-		}
-		for i, c := range g.WhiteCards {
-			enginePiece := chess.CardToEnginePiece(c)
-			if cfg.SHOW_EXTRA_LOGS {
-				println("Checking card:", chess.CardName(c), "-> enginePiece:", enginePiece)
-			}
-
-			if enginePiece == piece {
-				if cfg.SHOW_EXTRA_LOGS {
-					println("MATCH FOUND. Removing card:", chess.CardName(c))
-				}
-				//g.WhiteCards = append(g.WhiteCards[:i], g.WhiteCards[i+1:]...)
-				return i
-			}
-		}
-		if cfg.SHOW_EXTRA_LOGS {
-			println("White cards AFTER removal:", chess.CardListToString(g.WhiteCards))
-		}
-		return 0
-	} else {
-
-		piece := g.Board.GetPieceType(from, chess.White)
-		if cfg.SHOW_EXTRA_LOGS {
-			println("Black played piece type:", piece)
-
-			println("Black cards BEFORE:", chess.CardListToString(g.BlackCards))
-		}
-		for i, c := range g.BlackCards {
-			enginePiece := chess.CardToEnginePiece(c)
-			if cfg.SHOW_EXTRA_LOGS {
-				println("Checking card:", chess.CardName(c), "-> enginePiece:", enginePiece)
-			}
-			if enginePiece == piece {
-				if cfg.SHOW_EXTRA_LOGS {
-					println("MATCH FOUND. Removing card:", chess.CardName(c))
-				}
-				//g.BlackCards = append(g.BlackCards[:i], g.BlackCards[i+1:]...)
-				return i
-			}
-		}
-		if cfg.SHOW_EXTRA_LOGS {
-			println("Black cards AFTER removal:", chess.CardListToString(g.BlackCards))
-		}
-		return 0
+	if g.SideToMove == chess.Black {
+		cards = &g.BlackCards
+		opponent = chess.White
 	}
+
+	piece := g.Board.GetPieceType(from, int8(opponent))
+
+	if cfg.SHOW_EXTRA_LOGS {
+		println("Played piece type:", piece)
+		println("Cards BEFORE:", chess.CardListToString(*cards))
+	}
+
+	// First pass: mark cards for reroll
+	for i := 0; i < len(*cards) && i < len(cardsToReroll); i++ {
+		if cardsToReroll[i] == 1 {
+			removedCardIndexes = append(removedCardIndexes, i)
+		}
+	}
+
+	// Second pass: find matching piece (if not already marked for reroll)
+	for i, c := range *cards {
+		if cardsToReroll[i] == 1 {
+			continue // Already marked
+		}
+
+		enginePiece := chess.CardToEnginePiece(c)
+		if cfg.SHOW_EXTRA_LOGS {
+			println("Checking card:", chess.CardName(c), "-> enginePiece:", enginePiece)
+		}
+
+		if enginePiece == piece {
+			if cfg.SHOW_EXTRA_LOGS {
+				println("MATCH FOUND. Removing card:", chess.CardName(c))
+			}
+			removedCardIndexes = append(removedCardIndexes, i)
+			break
+		}
+	}
+
+	if cfg.SHOW_EXTRA_LOGS {
+		println("Cards AFTER removal:", chess.CardListToString(*cards))
+	}
+
+	return removedCardIndexes
 }
 
-func (g *GameSession) CardLogicAdding(from int8, removedCardIndex int, cfg *config.ConfigValues) {
+func (g *GameSession) CardLogicAdding(from int8, removedCardIndexes []int, cfg *config.ConfigValues) {
+	if cfg.SHOW_EXTRA_LOGS {
+		println("=== CardLogic ADDING ===")
+		println("SideToMove:", g.SideToMove)
+		fmt.Printf("Removed indexes: %v\n", removedCardIndexes)
+	}
+
 	if g.SideToMove == chess.White {
-		newCard := chess.GetRandomValidCard(&g.Board, chess.Black)
-		if cfg.SHOW_EXTRA_LOGS {
-			println("New card given to White:", chess.CardName(newCard))
-		}
-		if removedCardIndex >= 0 && removedCardIndex < len(g.WhiteCards) {
-			// Replace the removed card's slot with the new one
-			g.WhiteCards[removedCardIndex] = newCard
-		} else {
-			// Fallback: append if index is invalid
-			g.WhiteCards = append(g.WhiteCards, newCard)
+
+		for _, idx := range removedCardIndexes {
+			newCard := chess.GetRandomValidCard(&g.Board, chess.Black)
+
+			if cfg.SHOW_EXTRA_LOGS {
+				println("New card for White:", chess.CardName(newCard))
+			}
+
+			if idx >= 0 && idx < len(g.WhiteCards) {
+				g.WhiteCards[idx] = newCard
+			}
 		}
 
 		if cfg.SHOW_EXTRA_LOGS {
 			println("White cards FINAL:", chess.CardListToString(g.WhiteCards))
 		}
-	} else {
-		newCard := chess.GetRandomValidCard(&g.Board, chess.White)
-		if cfg.SHOW_EXTRA_LOGS {
-			println("New card given to Black:", chess.CardName(newCard))
+
+	} else { // Black
+
+		for _, idx := range removedCardIndexes {
+			newCard := chess.GetRandomValidCard(&g.Board, chess.White)
+
+			if cfg.SHOW_EXTRA_LOGS {
+				println("New card for Black:", chess.CardName(newCard))
+			}
+
+			if idx >= 0 && idx < len(g.BlackCards) {
+				g.BlackCards[idx] = newCard
+			}
 		}
-		if removedCardIndex >= 0 && removedCardIndex < len(g.BlackCards) {
-			g.BlackCards[removedCardIndex] = newCard
-		} else {
-			g.BlackCards = append(g.BlackCards, newCard)
-		}
+
 		if cfg.SHOW_EXTRA_LOGS {
 			println("Black cards FINAL:", chess.CardListToString(g.BlackCards))
 		}
 	}
+
 	if cfg.SHOW_EXTRA_LOGS {
 		println("=== END CardLogic ===")
 	}
@@ -348,6 +421,82 @@ func (g *GameSession) BroadcastCards() {
 	}
 }
 
+// to fix
+func (g *GameSession) handleTimeLoss(side int) {
+	loserID := g.Players[side].UserID
+	winnerID := g.Players[1-side].UserID
+
+	msg := fmt.Sprintf("Player %d lost on time. Player %d wins.", loserID, winnerID)
+	log.Println(msg)
+
+	payload, _ := json.Marshal(struct {
+		GameID uint32 `json:"game_id"`
+		Winner uint32 `json:"winner"`
+		Loser  uint32 `json:"loser"`
+		Reason string `json:"reason"`
+	}{
+		g.ID,
+		winnerID,
+		loserID,
+		"time",
+	})
+
+	for _, p := range g.Players {
+		_ = p.WriteMsg(ServerCmds.GameEnded, payload)
+	}
+
+	//g.saveGame()
+}
+
+func (g *GameSession) hasPlayableMove(cards []int8) bool {
+	cfg, _ := config.Instance.Get()
+
+	// Get all piece types that can move this turn
+	movers := g.Board.GetAllPiecesThatCanMoveThisTurn(int8(g.SideToMove))
+
+	if cfg.SHOW_EXTRA_LOGS {
+		log.Printf("=== hasPlayableMove Debug ===")
+		log.Printf("Movers (piece types that can move): %v", movers)
+		log.Printf("Player cards: %v", cards)
+	}
+
+	if len(movers) == 0 {
+		if cfg.SHOW_EXTRA_LOGS {
+			log.Println("No movers - returning false")
+		}
+		return false
+	}
+
+	// Create a set of piece types that can move
+	canMove := make(map[int8]bool)
+	for _, pieceType := range movers {
+		canMove[pieceType] = true
+		if cfg.SHOW_EXTRA_LOGS {
+			log.Printf("Piece type %d can move", pieceType)
+		}
+	}
+
+	// Check if any card matches a piece that can move
+	for _, card := range cards {
+		pieceType := chess.CardToEnginePiece(card)
+		if cfg.SHOW_EXTRA_LOGS {
+			log.Printf("Card %d (%s) -> piece type %d", card, chess.CardName(card), pieceType)
+			log.Printf("Can this piece type move? %v", canMove[int8(pieceType)])
+		}
+		if canMove[int8(pieceType)] {
+			if cfg.SHOW_EXTRA_LOGS {
+				log.Println("MATCH FOUND - returning true")
+			}
+			return true
+		}
+	}
+
+	if cfg.SHOW_EXTRA_LOGS {
+		log.Println("No matching cards - returning false")
+	}
+	return false
+}
+
 func (g *GameSession) shouldEndGame() bool {
 	g.Mu.RLock()
 	defer g.Mu.RUnlock()
@@ -358,19 +507,30 @@ func (g *GameSession) shouldEndGame() bool {
 	// }
 
 	inCheck := g.Board.IsInCheck(int8(g.SideToMove))
-	hasMoves := g.Board.HasLegalMoves(int8(g.SideToMove))
+	hasLegalMoves := g.Board.HasLegalMoves(int8(g.SideToMove))
 
-	if inCheck && !hasMoves {
-		// checkmate
+	// Get current player's cards
+	var currentCards []int8
+	if g.SideToMove == chess.White {
+		currentCards = g.WhiteCards
+	} else {
+		currentCards = g.BlackCards
+	}
+
+	hasPlayableMove := g.hasPlayableMove(currentCards)
+
+	if inCheck && !hasLegalMoves {
 		log.Println("checkmate")
 		return true
-	} else if !inCheck && !hasMoves {
-		// stalemate
+	}
+
+	// Stalemate: not in check but no legal moves
+	if !inCheck && !hasLegalMoves {
 		log.Println("stalemate")
 		return true
 	}
 
-	if inCheck {
+	if !hasPlayableMove {
 		if g.SideToMove == 0 {
 			g.WhiteHp -= 1
 		} else {
@@ -380,15 +540,16 @@ func (g *GameSession) shouldEndGame() bool {
 	}
 
 	// Check if players are still connected
-	connectedPlayers := 0
-	for _, player := range g.Players {
-		if player.ConnCount() > 0 && !player.IsDisconnected() {
-			connectedPlayers++
-		}
-	}
+	// connectedPlayers := 0
+	// for _, player := range g.Players {
+	// 	if player.ConnCount() > 0 && !player.IsDisconnected() {
+	// 		connectedPlayers++
+	// 	}
+	// }
 
 	// End game if less than 2 players connected
-	return connectedPlayers < 2
+	//return connectedPlayers < 2
+	return false
 }
 
 func (g *GameSession) saveGame() {
@@ -417,7 +578,7 @@ func (g *GameSession) saveGame() {
 	}
 }
 
-func (g *GameSession) BroadcastGameState(targetClient *Client) {
+func (g *GameSession) BroadcastGameState(targetClient *Client, conn *net.Conn) {
 	cfg, err := config.Instance.Get()
 	if err != nil {
 		log.Fatalf("failed to load config: %v", err)
@@ -439,11 +600,7 @@ func (g *GameSession) BroadcastGameState(targetClient *Client) {
 	}
 
 	for i, player := range g.Players {
-		if cfg.SHOW_EXTRA_LOGS {
-			println("game state dartta: : ", player.UserID, targetClient.UserID, player.ConnCount())
-		}
-
-		if player.ConnCount() == 0 || targetClient.UserID != player.UserID {
+		if targetClient.UserID != player.UserID {
 			continue
 		}
 		if cfg.SHOW_EXTRA_LOGS {
@@ -452,11 +609,21 @@ func (g *GameSession) BroadcastGameState(targetClient *Client) {
 
 		sideToMove := g.Board.SideToMove()
 
+		var enemyID uint32
+		if len(g.Players) == 2 {
+			if i == 0 {
+				enemyID = g.Players[1].UserID
+			} else {
+				enemyID = g.Players[0].UserID
+			}
+		}
+
 		// Pack complete game state
 		payload, err := bh.Pack(
-			[]bh.FieldType{bh.Uint32, bh.Uint8, bh.Uint8, bh.Uint8, bh.Int8, bh.Uint8, bh.Uint16},
+			[]bh.FieldType{bh.Uint32, bh.Uint32, bh.Uint8, bh.Uint8, bh.Uint8, bh.Int8, bh.Uint8, bh.Uint16},
 			[]any{
 				g.ID,
+				enemyID,
 				uint8(i),
 				sideToMove,
 				g.Board.Flags & 15, // Only castling bits (mask out WhiteToMove bit)
@@ -473,7 +640,30 @@ func (g *GameSession) BroadcastGameState(targetClient *Client) {
 		// Append board data
 		payload = append(payload, boardBytes...)
 
-		err = player.WriteMsg(ServerCmds.GameState, payload)
+		// --- Append HP ---
+		hpBytes, err := bh.Pack(
+			[]bh.FieldType{bh.Int8, bh.Int8},
+			[]any{g.WhiteHp, g.BlackHp},
+		)
+		if err != nil {
+			logger.Log.Warn().Err(err).Uint32("gameId", g.ID).Msg("error packing HP")
+			continue
+		}
+		payload = append(payload, hpBytes...)
+
+		// --- Append Cards ---
+		payload = append(payload, byte(len(g.WhiteCards)))
+		payload = append(payload, byte(len(g.BlackCards)))
+		for _, c := range g.WhiteCards {
+			payload = append(payload, byte(c))
+		}
+		for _, c := range g.BlackCards {
+			payload = append(payload, byte(c))
+		}
+
+		//append alst move
+
+		err = WriteMsgToSingleConn(*conn, ServerCmds.GameFullStatus, payload)
 		if err != nil {
 			logger.Log.Warn().Err(err).Uint32("gameId", g.ID).Uint32("playerId", player.UserID).Msg("error sending game state to player")
 		}

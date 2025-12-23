@@ -96,6 +96,7 @@ func handleConn(conn net.Conn) {
 			token := string(payload)
 			valid, uid, err := authclient.ValidateToken(token)
 			if err != nil || !valid {
+				println("Couldnt validate token")
 				logger.Log.Warn().Err(err).Msg("Invalid token")
 				conn.Close()
 				closeConn(client, connID)
@@ -117,7 +118,7 @@ func handleConn(conn net.Conn) {
 			if ok {
 				for _, g := range games {
 					fmt.Println("Active game:", g.ID)
-					g.BroadcastGameState(client)
+					g.BroadcastGameState(client, &conn)
 					//broadcast games
 				}
 			}
@@ -144,9 +145,6 @@ func handleConn(conn net.Conn) {
 func closeConn(client *Client, connID uint64) { // Connection closed, remove this connection from the client's map
 	if client != nil {
 		remainingConns := client.RemoveConn(connID)
-		if remainingConns <= 0 {
-			RemoveClient(client.UserID)
-		}
 		logger.Log.Info().Uint32("clientId", client.UserID).Int("remainingConns", remainingConns).Msg("Connection closed, client has remaining connections")
 	}
 }

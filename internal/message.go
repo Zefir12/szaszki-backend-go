@@ -21,6 +21,7 @@ var ServerCmds = struct {
 	GameDeclined         MsgType
 	GameSearchTimeout    MsgType
 	GameFullStatus       MsgType
+	GameEnded            MsgType
 	MoveHappend          MsgType
 	InvalidMove          MsgType
 	GameState            MsgType
@@ -36,6 +37,7 @@ var ServerCmds = struct {
 	GameDeclined:         6,
 	GameSearchTimeout:    7,
 	GameFullStatus:       8,
+	GameEnded:            9,
 	MoveHappend:          15,
 	InvalidMove:          16,
 	GameState:            20,
@@ -51,6 +53,7 @@ var ClientCmds = struct {
 	AcceptedGame     MsgType
 	DeclinedGame     MsgType
 	CloseSocket      MsgType
+	Surrender        MsgType
 	MovePiece        MsgType
 }{
 	Pong:             1,
@@ -59,6 +62,7 @@ var ClientCmds = struct {
 	AcceptedGame:     4,
 	DeclinedGame:     5,
 	MovePiece:        10,
+	Surrender:        67,
 	CloseSocket:      61500,
 }
 
@@ -83,7 +87,13 @@ func handleMessage(msgType MsgType, payload []byte, client *Client) {
 			return
 		}
 
-		ints, err := bh.Unpack(payload, []bh.FieldType{bh.Int8, bh.Int8, bh.Int8, bh.Uint32})
+		ints, err := bh.Unpack(payload, []bh.FieldType{
+			bh.Int8,                                     // from
+			bh.Int8,                                     // to
+			bh.Int8,                                     // promoteTo
+			bh.Uint32,                                   // gameId
+			bh.Int8, bh.Int8, bh.Int8, bh.Int8, bh.Int8, // 5 reroll slots
+		})
 		if err != nil {
 			logger.Log.Warn().Uint32("clientId", client.UserID).Err(err).Msg("Can't unpack move")
 			invalid()
@@ -92,7 +102,14 @@ func handleMessage(msgType MsgType, payload []byte, client *Client) {
 		from := ints[0].(int8)
 		to := ints[1].(int8)
 		promoteTo := ints[2].(int8)
-
+		cardsToReroll :=
+			[5]int8{
+				ints[4].(int8),
+				ints[5].(int8),
+				ints[6].(int8),
+				ints[7].(int8),
+				ints[8].(int8),
+			}
 		game, ok := keeper.GetGame(ints[3].(uint32))
 
 		if game == nil || !ok {
@@ -102,14 +119,20 @@ func handleMessage(msgType MsgType, payload []byte, client *Client) {
 		}
 
 		move := PlayerMove{
-			From:      from,
-			To:        to,
-			PromoteTo: promoteTo,
-			Player:    client,
+			From:          from,
+			To:            to,
+			PromoteTo:     promoteTo,
+			CardsToReroll: cardsToReroll,
+			Player:        client,
 		}
 		logger.Log.Info().Uint32("gameId", game.ID).Int("from", int(from)).Int("to", int(to)).Int("promoteTo", int(promoteTo)).Uint32("playerId", client.UserID).Msg("Sending move to game")
 		game.MoveChannel <- move
-
+	case ClientCmds.Surrender:
+		gameId := binary.BigEndian.Uint32(payload)
+		game, ok := keeper.GetGame(gameId)
+		if ok {
+			game.Surrender(client)
+		}
 	default:
 	}
 }

@@ -3,6 +3,7 @@ package internal
 import (
 	"net"
 	"sync"
+	"time"
 
 	"github.com/zefir/szaszki-go-backend/logger"
 )
@@ -12,8 +13,11 @@ type Client struct {
 	UserID           uint32
 	CurrentlyPlaying bool
 	QueuedInModes    map[uint16]bool
+	lastSeen         time.Time
 	Mu               sync.Mutex
 	disconnected     bool // Track if client is already being disconnected
+
+	initialMessages [][]byte // ← message queue for initial messages
 }
 
 var (
@@ -78,18 +82,11 @@ func GetClientOrCreate(userID uint32) *Client {
 	defer clientsMu.Unlock()
 
 	if client, ok := clients[userID]; ok {
-		// Check if client is disconnected, if so create a new one
 		client.Mu.Lock()
-		disconnected := client.disconnected
+		client.disconnected = false // ← reclaim old client!
+		client.lastSeen = time.Now()
 		client.Mu.Unlock()
-
-		if disconnected {
-			logger.Log.Info().Uint32("clientId", client.UserID).Msg("Client is diconnected, making new one, and deleting old")
-			// Remove the old disconnected client
-			delete(clients, userID)
-		} else {
-			return client
-		}
+		return client
 	}
 
 	// Create new Client
@@ -123,27 +120,27 @@ func GetClient(userID uint32) (*Client, bool) {
 	return client, true
 }
 
-func RemoveClient(userID uint32) {
-	clientsMu.Lock()
-	defer clientsMu.Unlock()
+// func RemoveClient(userID uint32) {
+// 	clientsMu.Lock()
+// 	defer clientsMu.Unlock()
 
-	if client, ok := clients[userID]; ok {
-		// Mark as disconnected first
-		client.Mu.Lock()
-		client.disconnected = true
+// 	if client, ok := clients[userID]; ok {
+// 		// Mark as disconnected first
+// 		client.Mu.Lock()
+// 		client.disconnected = true
 
-		// Close all connections
-		for connID, conn := range client.Conns {
-			logger.Log.Info().Uint32("clientId", client.UserID).Uint64("connId", connID).Msg("Closing connection for client")
-			conn.Close()
-		}
-		client.Conns = make(map[uint64]net.Conn) // Clear the map
-		client.Mu.Unlock()
+// 		// Close all connections
+// 		for connID, conn := range client.Conns {
+// 			logger.Log.Info().Uint32("clientId", client.UserID).Uint64("connId", connID).Msg("Closing connection for client")
+// 			conn.Close()
+// 		}
+// 		client.Conns = make(map[uint64]net.Conn) // Clear the map
+// 		client.Mu.Unlock()
 
-		delete(clients, userID)
-		logger.Log.Info().Uint32("clientId", client.UserID).Msg("Client removed")
-	}
-}
+// 		delete(clients, userID)
+// 		logger.Log.Info().Uint32("clientId", client.UserID).Msg("Client removed")
+// 	}
+// }
 
 func GetAllClients() map[uint32]*Client {
 	clientsMu.RLock()
@@ -166,50 +163,20 @@ func (c *Client) RemoveConn(connID uint64) int {
 	c.Mu.Lock()
 	defer c.Mu.Unlock()
 
-	if c.disconnected {
-		logger.Log.Warn().Uint32("clientId", c.UserID).Uint64("connId", connID).Msg("client already disconnected, ignoring conn removal")
-		return 0
-	}
-
 	if c.Conns != nil {
-		if _, exists := c.Conns[connID]; exists {
-			delete(c.Conns, connID)
-			logger.Log.Info().Uint32("clientId", c.UserID).Uint64("connectionId", connID).Uint16("remaining connections", uint16(len(c.Conns))).Msg("Connection removed")
-
-			if len(c.Conns) <= 0 {
-				c.disconnected = true // Mark as disconnected before handling
-				c.Mu.Unlock()         // Unlock before calling handleDisconnect to avoid deadlock
-				c.handleDisconnect()
-				RemoveClient(c.UserID)
-				c.Mu.Lock() // Re-lock for defer unlock
-			}
-		} else {
-			logger.Log.Warn().Uint32("clientId", c.UserID).Uint64("connId", connID).Msg("Can't find connection to remove")
-		}
-	}
-	return len(c.Conns)
-}
-
-func (c *Client) handleDisconnect() {
-	logger.Log.Info().Uint32("clientId", c.UserID).Msg("handling disconnect for client")
-
-	// Remove from all matchmakers - make this more robust
-	var wg sync.WaitGroup
-	for i, m := range matchmakers {
-		wg.Add(1)
-		go func(matchmaker *Matchmaker, index uint16) {
-			defer wg.Done()
-			select {
-			case matchmaker.remove <- c:
-				logger.Log.Info().Uint32("clientId", c.UserID).Uint16("mode", m.mode).Msg("Client sent to be removed from matchmaker")
-			default:
-				logger.Log.Warn().Uint32("clientId", c.UserID).Uint16("mode", m.mode).Msg("Client couldn't be sent to be removed from matchmaker")
-			}
-		}(m, i)
+		delete(c.Conns, connID)
 	}
 
-	// Optional: wait for all matchmaker removals to complete
-	// wg.Wait()
+	remaining := len(c.Conns)
+	logger.Log.Info().Uint32("clientId", c.UserID).Int("remainingConns", remaining).Msg("Connection removed")
+
+	if remaining == 0 {
+		// mark soft-disconnected, but DO NOT remove client
+		c.disconnected = false // Allow reclaim
+		// optional: store timestamp for idle timeout
+	}
+
+	return remaining
 }
 
 func (c *Client) ConnCount() int {

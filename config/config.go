@@ -22,7 +22,7 @@ type ConfigValues struct {
 	GRPC_PORT             IntOrString            `json:"GRPC_PORT"`
 	NODE_GRPC_ADDR        string                 `json:"NODE_GRPC_ADDR"`
 	ADMIN_ENDPOINT_SECRET string                 `json:"ADMIN_ENDPOINT_SECRET"`
-	SHOW_EXTRA_LOGS       bool                   `json:"SHOW_EXTRA_LOGS"`
+	SHOW_EXTRA_LOGS       BoolOrString           `json:"SHOW_EXTRA_LOGS"`
 }
 
 type Config struct {
@@ -213,6 +213,7 @@ func (b byteReader) Read(p []byte) (int, error) {
 }
 
 type IntOrString int
+type BoolOrString bool
 
 func (i *IntOrString) UnmarshalJSON(b []byte) error {
 	// Try int
@@ -234,4 +235,29 @@ func (i *IntOrString) UnmarshalJSON(b []byte) error {
 	}
 
 	return fmt.Errorf("VPSID must be string or int, got: %s", string(b))
+}
+
+func (b *BoolOrString) UnmarshalJSON(data []byte) error {
+	// Try bool first
+	var boolVal bool
+	if err := json.Unmarshal(data, &boolVal); err == nil {
+		*b = BoolOrString(boolVal)
+		return nil
+	}
+
+	// Try string
+	var strVal string
+	if err := json.Unmarshal(data, &strVal); err == nil {
+		switch strings.ToLower(strings.TrimSpace(strVal)) {
+		case "1", "true", "yes", "on":
+			*b = BoolOrString(true)
+		case "0", "false", "no", "off", "":
+			*b = BoolOrString(false)
+		default:
+			return fmt.Errorf("invalid bool string: %s", strVal)
+		}
+		return nil
+	}
+
+	return fmt.Errorf("SHOW_EXTRA_LOGS must be bool or string, got: %s", string(data))
 }

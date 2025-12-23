@@ -39,6 +39,7 @@ func (g *GameKeeper) CreateGame(players []*Client, mode uint16) *GameSession {
 		BoardHistory: []chess.Board{startingBoard},
 		SideToMove:   chess.White,
 		MoveChannel:  make(chan PlayerMove, 4),
+		GameActive:   true,
 	}
 	g.games[g.nextID] = gamesession
 	g.nextID++
