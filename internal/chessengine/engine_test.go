@@ -2,6 +2,7 @@ package chess
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -720,87 +721,211 @@ func SANToMove(board *Board, san string) (Move, error) {
 	return Move{}, fmt.Errorf("cannot resolve SAN move: %s", san)
 }
 
-// Test a full game from PGN
-func TestPGNGame(t *testing.T) {
-	pgn := `
-[Event "Live Chess"]
-[Site "Chess.com"]
-[Date "2025.12.23"]
-[Round "-"]
-[White "Chris_Chess198"]
-[Black "zefirqa"]
-[Result "1/2-1/2"]
-[CurrentPosition "8/1p4k1/8/8/8/2q5/1r6/3K4 w - - 18 62"]
-[Timezone "UTC"]
-[ECO "C22"]
-[ECOUrl "https://www.chess.com/openings/Center-Game-Accepted-Normal-Variation"]
-[UTCDate "2025.12.23"]
-[UTCTime "14:23:22"]
-[WhiteElo "748"]
-[BlackElo "732"]
-[TimeControl "180"]
-[Termination "Game drawn by stalemate"]
-[StartTime "14:23:22"]
-[EndDate "2025.12.23"]
-[EndTime "14:29:50"]
-[Link "https://www.chess.com/analysis/game/live/147079102508/analysis"]
-[WhiteUrl "https://images.chesscomfiles.com/uploads/v1/user/76940020.0643e98e.50x50o.da031ac84993.jpeg"]
-[WhiteCountry "2"]
-[WhiteTitle ""]
-[BlackUrl "https://images.chesscomfiles.com/uploads/v1/user/291321115.6693bc46.50x50o.2d714e92cdad.jpg"]
-[BlackCountry "116"]
-[BlackTitle ""]
+type PGNTest struct {
+	Name     string
+	PGN      string
+	FinalFEN string
+}
 
-1. e4 e5 2. d4 exd4 3. Qxd4 Nc6 4. Qd1 Nf6 5. Nc3 Bb4 6. Bd3 O-O 7. Bd2 Re8 8.
-f3 d5 9. Nge2 dxe4 10. Nxe4 Bxd2+ 11. Qxd2 Bf5 12. Nxf6+ Qxf6 13. O-O Rad8 14.
-Rad1 Bxd3 15. cxd3 Ne5 16. d4 Nc4 17. Qc3 Ne3 18. d5 Nxf1 19. Qxf6 gxf6 20. Kxf1
-Re5 21. Nf4 c6 22. d6 Kf8 23. b4 f5 24. a3 f6 25. Nh5 Kf7 26. f4 Rd5 27. Rxd5
-cxd5 28. Kf2 Rxd6 29. Kg3 d4 30. Kh4 d3 31. Ng3 d2 32. Nxf5 Rd5 33. Ne3 Rd4 34.
-Kg3 d1=Q 35. Nxd1 Rxd1 36. Kg4 Ra1 37. g3 Kg6 38. h4 Rxa3 39. h5+ Kg7 40. Kf5
-Ra4 41. h6+ Kg8 42. Kxf6 Rxb4 43. f5 a5 44. g4 a4 45. g5 a3 46. g6 hxg6 47. fxg6
-Rb6+ 48. Kf5 a2 49. h7+ Kg7 50. h8=Q+ Kxh8 51. g7+ Kxg7 52. Ke5 a1=Q+ 53. Kf5
-Qf6+ 54. Ke4 Rb5 55. Ke3 Qe5+ 56. Kf3 Rb4 57. Kf2 Qf4+ 58. Ke2 Rb3 59. Kd1 Qe3
-60. Kc2 Qc3+ 61. Kd1 Rb2 1/2-1/2`
+func LoadPGNTests(path string) ([]PGNTest, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
 
-	// --- Parse PGN ---
-	games, err := ParsePGNReader(strings.NewReader(pgn))
+	lines := strings.Split(string(data), "\n")
+	var games []PGNTest
+
+	var currentName string
+	var currentPGN []string
+
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+
+		if strings.HasPrefix(line, "#") {
+			// Start of a new game
+			if len(currentPGN) > 0 {
+				// Save the previous game
+				pgnText := strings.Join(currentPGN, "\n")
+				finalFEN, err := ExtractFinalFEN(pgnText)
+				if err != nil {
+					return nil, fmt.Errorf("could not extract final FEN for game %s: %v", currentName, err)
+				}
+				games = append(games, PGNTest{
+					Name:     currentName,
+					PGN:      pgnText,
+					FinalFEN: finalFEN,
+				})
+			}
+			// Start new game
+			currentName = strings.TrimSpace(strings.TrimPrefix(line, "#"))
+			currentPGN = []string{}
+			continue
+		}
+
+		currentPGN = append(currentPGN, line)
+	}
+
+	// Add the last game
+	if len(currentPGN) > 0 {
+		pgnText := strings.Join(currentPGN, "\n")
+		finalFEN, err := ExtractFinalFEN(pgnText)
+		if err != nil {
+			return nil, fmt.Errorf("could not extract final FEN for game %s: %v", currentName, err)
+		}
+		games = append(games, PGNTest{
+			Name:     currentName,
+			PGN:      pgnText,
+			FinalFEN: finalFEN,
+		})
+	}
+
+	return games, nil
+}
+
+func TestPGNGames(t *testing.T) {
+	tests, err := LoadPGNTests("../../testdata/games.pgn")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(games) != 1 {
-		t.Fatalf("Expected 1 game, got %d", len(games))
+
+	for _, tc := range tests {
+		t.Run(tc.Name, func(t *testing.T) {
+			games, err := ParsePGNReader(strings.NewReader(tc.PGN))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(games) != 1 {
+				t.Fatalf("Expected 1 game, got %d", len(games))
+			}
+
+			game := games[0]
+			board := NewStartingPosition()
+			for i, san := range game.Moves {
+				move, err := SANToMove(&board, san)
+				if err != nil {
+					t.Fatalf("Move %d (%s) failed: %v", i+1, san, err)
+				}
+				MakeMove(&board, move.From, move.To, move.Promotion, false)
+			}
+
+			engineCore := strings.Join(strings.Fields(board.ToFEN())[:4], " ")
+			expectedCore := strings.Join(strings.Fields(tc.FinalFEN)[:4], " ")
+			if engineCore != expectedCore {
+				t.Fatalf("Final FEN mismatch\nExpected: %s\nGot:      %s", expectedCore, engineCore)
+			}
+		})
 	}
-
-	game := games[0]
-	board := NewStartingPosition()
-
-	// --- Replay moves ---
-	for i, san := range game.Moves {
-		move, err := SANToMove(&board, san)
-		if err != nil {
-			t.Fatalf("Move %d (%s) failed: %v", i+1, san, err)
-		}
-		MakeMove(&board, move.From, move.To, move.Promotion, false)
-		fen := board.ToFEN() // assuming you have a board.FEN() method
-		t.Logf("Move %d: %s -> FEN: %s", i+1, san, fen)
-	}
-
-	// --- Compare final FEN (ignore clocks) ---
-	expectedFEN := "8/1p4k1/8/8/8/2q5/1r6/3K4 w - - 18 62"
-
-	engineParts := strings.Fields(board.ToFEN())
-	expectedParts := strings.Fields(expectedFEN)
-
-	engineCore := strings.Join(engineParts[:4], " ")
-	expectedCore := strings.Join(expectedParts[:4], " ")
-
-	if engineCore != expectedCore {
-		t.Fatalf(
-			"Final FEN mismatch\nExpected: %s\nGot:      %s",
-			expectedCore,
-			engineCore,
-		)
-	}
-
-	t.Log("PGN replay successful and final FEN matches Chess.com")
 }
+
+// ExtractFinalFEN reads the PGN text and returns the FEN from the [CurrentPosition "..."] header
+func ExtractFinalFEN(pgn string) (string, error) {
+	scanner := bufio.NewScanner(strings.NewReader(pgn))
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if strings.HasPrefix(line, "[CurrentPosition") {
+			// line format: [CurrentPosition "FEN"]
+			start := strings.Index(line, "\"")
+			end := strings.LastIndex(line, "\"")
+			if start == -1 || end == -1 || end <= start {
+				return "", errors.New("invalid CurrentPosition header format")
+			}
+			return line[start+1 : end], nil
+		}
+	}
+	return "", errors.New("CurrentPosition header not found")
+}
+
+// Test a full game from PGN
+// func TestPGNGame(t *testing.T) {
+// 	pgn := `
+// [Event "Live Chess"]
+// [Site "Chess.com"]
+// [Date "2025.12.23"]
+// [Round "-"]
+// [White "Cheer_Down"]
+// [Black "Chessbard1972"]
+// [Result "1-0"]
+// [Tournament "https://www.chess.com/tournament/live/titled-tuesday-blitz-december-23-2025-6110589"]
+// [CurrentPosition "8/8/6P1/7k/5K1N/b7/8/8 b - - 0 95"]
+// [Timezone "UTC"]
+// [ECO "D30"]
+// [ECOUrl "https://www.chess.com/openings/Queens-Gambit-Declined-Pseudo-Tarrasch-Defense-4.e3"]
+// [UTCDate "2025.12.23"]
+// [UTCTime "16:11:07"]
+// [WhiteElo "2649"]
+// [BlackElo "2416"]
+// [TimeControl "300"]
+// [Termination "Cheer_Down won on time"]
+// [StartTime "16:11:07"]
+// [EndDate "2025.12.23"]
+// [EndTime "16:21:15"]
+// [Link "https://www.chess.com/analysis/game/live/160819629725/analysis?move=188"]
+// [WhiteUrl "https://images.chesscomfiles.com/uploads/v1/user/49542020.3c660b52.50x50o.4b101c77be84.jpeg"]
+// [WhiteCountry "75"]
+// [WhiteTitle "CM"]
+// [BlackUrl "https://images.chesscomfiles.com/uploads/v1/user/73534598.42e69e19.50x50o.8758ab788452.jpeg"]
+// [BlackCountry "54"]
+// [BlackTitle "FM"]
+
+// 1. d4 d5 2. c4 e6 3. Nf3 c5 4. e3 Nf6 5. a3 a6 6. dxc5 Bxc5 7. b4 Ba7 8. Bb2 O-O
+// 9. Nbd2 Qe7 10. Qb3 Rd8 11. Be2 Nc6 12. O-O dxc4 13. Nxc4 b5 14. Nce5 Bb7 15.
+// Rac1 Rac8 16. Nxc6 Bxc6 17. Be5 Bd5 18. Qb2 Ne8 19. h3 f6 20. Bd4 Bb8 21. Rxc8
+// Rxc8 22. Rc1 Rd8 23. Bd1 Nd6 24. Bc5 Qc7 25. Bxd6 Qxd6 26. g3 Ba7 27. Qc3 Bc4
+// 28. Bb3 Bxb3 29. Qxb3 Kf7 30. Qc2 Qd5 31. Kg2 h5 32. Qh7 Bb6 33. Rc2 a5 34. Rd2
+// Qf5 35. Qxf5 exf5 36. Rxd8 Bxd8 37. Nd4 axb4 38. axb4 Be7 39. Nxf5 Bxb4 40. Nd4
+// Bc5 41. Nxb5 Ke6 42. Nc3 f5 43. Kf1 g5 44. Ke2 Ke5 45. Nb1 f4 46. exf4+ gxf4 47.
+// g4 hxg4 48. hxg4 Ke4 49. Nd2+ Ke5 50. Kf3 Ba7 51. Ne4 Bb8 52. Ng5 Kf6 53. Nh3
+// Kg6 54. Nxf4+ Kg5 55. Nh3+ Kh4 56. Ng1 Ba7 57. Ne2 Bxf2 58. Nf4 Ba7 59. Ng2+ Kg5
+// 60. Kg3 Bb8+ 61. Kf3 Ba7 62. Ne1 Bb8 63. Nd3 Bd6 64. Nf2 Bc7 65. Ne4+ Kg6 66.
+// Kg2 Bb8 67. Kf1 Be5 68. Ke2 Bb8 69. Kd3 Ba7 70. Kc4 Be3 71. Kd5 Bc1 72. Ke6 Be3
+// 73. Kd7 Bc1 74. Kc6 Be3 75. Kb5 Bc1 76. Kc4 Be3 77. Kc3 Bc1 78. Kd3 Bg5 79. Ke2
+// Bf4 80. Kf1 Bg5 81. Kg2 Bh6 82. Kh3 Bg5 83. Nf2 Bc1 84. Nd3 Bg5 85. Ne5+ Kf6 86.
+// Nf3 Kg6 87. Kg2 Bf4 88. Kf2 Bc1 89. Ke2 Ba3 90. Kd3 Kf6 91. Ke4 Kg6 92. Kf4 Kf6
+// 93. g5+ Kg6 94. Nh4+ Kh5 95. g6 1-0`
+
+// 	// --- Parse PGN ---
+// 	games, err := ParsePGNReader(strings.NewReader(pgn))
+// 	if err != nil {
+// 		t.Fatal(err)
+// 	}
+// 	if len(games) != 1 {
+// 		t.Fatalf("Expected 1 game, got %d", len(games))
+// 	}
+
+// 	game := games[0]
+// 	board := NewStartingPosition()
+
+// 	// --- Replay moves ---
+// 	for i, san := range game.Moves {
+// 		move, err := SANToMove(&board, san)
+// 		if err != nil {
+// 			t.Fatalf("Move %d (%s) failed: %v", i+1, san, err)
+// 		}
+// 		MakeMove(&board, move.From, move.To, move.Promotion, false)
+// 		fen := board.ToFEN() // assuming you have a board.FEN() method
+// 		t.Logf("Move %d: %s -> FEN: %s", i+1, san, fen)
+// 	}
+
+// 	// --- Compare final FEN (ignore clocks) ---
+// 	expectedFEN := "8/1p4k1/8/8/8/2q5/1r6/3K4 w - - 18 62"
+
+// 	engineParts := strings.Fields(board.ToFEN())
+// 	expectedParts := strings.Fields(expectedFEN)
+
+// 	engineCore := strings.Join(engineParts[:4], " ")
+// 	expectedCore := strings.Join(expectedParts[:4], " ")
+
+// 	if engineCore != expectedCore {
+// 		t.Fatalf(
+// 			"Final FEN mismatch\nExpected: %s\nGot:      %s",
+// 			expectedCore,
+// 			engineCore,
+// 		)
+// 	}
+
+// 	t.Log("PGN replay successful and final FEN matches Chess.com")
+// }

@@ -38,5 +38,5 @@ test:
 	gotestsum --format testname ./internal/chessengine
 
 bench:
-	go test ./internal/chessengine -run=^$$ -bench=. -benchmem > bench.txt
-	benchstat bench.txt bench.txt
+	go test ./internal/chessengine -run=^$$ -bench=. -benchmem > benchmarkresults/engine-benchmark-v1.0.4.txt
+	benchstat benchmarkresults/engine-benchmark-v1.0.3.txt benchmarkresults/engine-benchmark-v1.0.4.txt

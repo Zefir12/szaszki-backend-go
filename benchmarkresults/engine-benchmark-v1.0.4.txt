@@ -1,0 +1,23 @@
+goos: windows
+goarch: amd64
+pkg: github.com/zefir/szaszki-go-backend/internal/chessengine
+cpu: AMD Ryzen 7 7730U with Radeon Graphics         
+BenchmarkSANToMove-16                          	11032767	       108.5 ns/op	       0 B/op	       0 allocs/op
+BenchmarkMakeMove-16                           	13561834	        89.52 ns/op	       0 B/op	       0 allocs/op
+BenchmarkIsMoveLegal-16                        	21726102	        54.74 ns/op	       0 B/op	       0 allocs/op
+BenchmarkIsPseudoLegal-16                      	274520515	         4.494 ns/op	       0 B/op	       0 allocs/op
+BenchmarkIsSquareAttacked-16                   	21011860	        53.13 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSlidingAttacks-16                     	86938881	        13.73 ns/op	       0 B/op	       0 allocs/op
+BenchmarkHasLegalMoves-16                      	20022458	        60.85 ns/op	       0 B/op	       0 allocs/op
+BenchmarkGetAllPiecesThatCanMoveThisTurn-16    	  859936	      1399 ns/op	      88 B/op	       3 allocs/op
+BenchmarkComputeHash-16                        	17934752	        65.51 ns/op	       0 B/op	       0 allocs/op
+BenchmarkFullGameReplay-16                     	   65654	     18129 ns/op	     920 B/op	      38 allocs/op
+BenchmarkPawnMoveGeneration-16                 	1000000000	         0.4465 ns/op	       0 B/op	       0 allocs/op
+BenchmarkBishopMoveGeneration-16               	73898450	        16.09 ns/op	       0 B/op	       0 allocs/op
+BenchmarkRookMoveGeneration-16                 	87042302	        13.69 ns/op	       0 B/op	       0 allocs/op
+BenchmarkQueenMoveGeneration-16                	100000000	        11.57 ns/op	       0 B/op	       0 allocs/op
+BenchmarkBoardClone-16                         	1000000000	         0.2244 ns/op	       0 B/op	       0 allocs/op
+BenchmarkToFEN-16                              	 1561044	       763.7 ns/op	     136 B/op	       9 allocs/op
+BenchmarkComplexPositionLegalMoves-16          	19695410	        59.85 ns/op	       0 B/op	       0 allocs/op
+PASS
+ok  	github.com/zefir/szaszki-go-backend/internal/chessengine	20.870s
