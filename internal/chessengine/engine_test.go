@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"fmt"
 	"io"
-	"log"
 	"os"
 	"strings"
 	"testing"
@@ -50,7 +49,6 @@ func ParseFEN(fen string) (*Board, error) {
 				switch ch {
 				case 'P':
 					board.Pawns[color] |= bb
-					log.Printf("Stored Pawn for color %d at square %d (%s)", color, square, IndexToSqaureName(int8(square)))
 				case 'N':
 					board.Knights[color] |= bb
 				case 'B':
@@ -652,10 +650,10 @@ func SANToMove(board *Board, san string) (Move, error) {
 	var candidates []int8
 	bb := getBitboardByPiece(board, int8(color), piece)
 
-	fmt.Printf("SAN: %s\n", san)
-	fmt.Printf("Piece: %d, Color: %d, Target square: %d\n", piece, color, to)
-	fmt.Printf("Disambiguation: file=%d, rank=%d\n", disFile, disRank)
-	fmt.Printf("Bitboard: %064b\n", bb)
+	// fmt.Printf("SAN: %s\n", san)
+	// fmt.Printf("Piece: %d, Color: %d, Target square: %d\n", piece, color, to)
+	// fmt.Printf("Disambiguation: file=%d, rank=%d\n", disFile, disRank)
+	// fmt.Printf("Bitboard: %064b\n", bb)
 
 	// First pass: strict SAN (with disambiguation)
 	bbCopy := bb
@@ -687,12 +685,11 @@ func SANToMove(board *Board, san string) (Move, error) {
 			}
 		}
 
-		fmt.Printf("Checking candidate from %d -> %d\n", from, to)
 		if IsMoveLegal(board, from, to, promotion) {
-			fmt.Printf("Move allowed: %d -> %d\n", from, to)
+			//fmt.Printf("Move allowed: %d -> %d\n", from, to)
 			return Move{From: from, To: to, Promotion: promotion}, nil
 		} else {
-			fmt.Printf("Move blocked: %d -> %d\n", from, to)
+			//fmt.Printf("Move blocked: %d -> %d\n", from, to)
 		}
 	}
 

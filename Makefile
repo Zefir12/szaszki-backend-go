@@ -36,3 +36,7 @@ run:
 # Run all tests with pretty output
 test:
 	gotestsum --format testname ./internal/chessengine
+
+bench:
+	go test ./internal/chessengine -run=^$$ -bench=. -benchmem > bench.txt
+	benchstat bench.txt bench.txt

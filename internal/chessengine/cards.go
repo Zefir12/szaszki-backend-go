@@ -22,7 +22,7 @@ func GetRandomCard() int8 {
 }
 
 func GetRandomValidCard(board *Board, color int8) int8 {
-	movers := board.GetAllPiecesThatCanMoveThisTurn(color)
+	movers := board.GetAllPiecesThatCanMoveThisTurn(color, false)
 	if len(movers) == 0 {
 		return GetRandomCard() // fallback
 	}

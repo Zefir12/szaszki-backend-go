@@ -19,7 +19,7 @@ func (b *Board) ToPGN(moveHistory []Move) string {
 		san := moveToSAN(&temp, move)
 		pgn += san + " "
 
-		MakeMove(&temp, move.From, move.To, move.Promotion, true)
+		MakeMove(&temp, move.From, move.To, move.Promotion, false)
 	}
 
 	return pgn
@@ -192,7 +192,7 @@ func moveToSAN(board *Board, move Move) string {
 
 	// ---- check or mate ----
 	temp := *board
-	MakeMove(&temp, move.From, move.To, move.Promotion, true)
+	MakeMove(&temp, move.From, move.To, move.Promotion, false)
 	if kingInCheckmate(&temp, enemy) {
 		san += "#"
 	} else if kingInCheck(&temp, enemy) {

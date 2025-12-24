@@ -5,8 +5,6 @@ import (
 	"log"
 	"math/bits"
 	"math/rand"
-
-	"github.com/zefir/szaszki-go-backend/config"
 )
 
 //https://en.wikipedia.org/wiki/Bitboard
@@ -488,11 +486,7 @@ func IsMoveLegal(board *Board, from, to, promoteTo int8) bool {
 	return !IsSquareAttacked(kingSq, &temp, int8(enemyColor))
 }
 
-func (b *Board) GetAllPiecesThatCanMoveThisTurn(color int8) []int8 {
-	cfg, err := config.Instance.Get()
-	if err != nil {
-		log.Fatalf("failed to load config: %v", err)
-	}
+func (b *Board) GetAllPiecesThatCanMoveThisTurn(color int8, testing bool) []int8 {
 
 	pieces := []int8{}
 	occupied := b.Occupied[White] | b.Occupied[Black]
@@ -533,7 +527,7 @@ func (b *Board) GetAllPiecesThatCanMoveThisTurn(color int8) []int8 {
 		}},
 	}
 
-	if cfg.SHOW_EXTRA_LOGS {
+	if testing {
 		// Debug: Print all pieces before checking moves
 		log.Println("=== Checking pieces for color", color, "===")
 		for pieceIdx, p := range pieceLoops {
@@ -573,12 +567,12 @@ func (b *Board) GetAllPiecesThatCanMoveThisTurn(color int8) []int8 {
 			}
 
 			if legalMovesCount > 0 {
-				if cfg.SHOW_EXTRA_LOGS {
+				if testing {
 					log.Printf("✓ %s at %s CAN move (%d legal moves)", pieceName, IndexToSqaureName(from), legalMovesCount)
 				}
 				pieces = append(pieces, int8(b.GetPieceType(from, color)))
 			} else {
-				if cfg.SHOW_EXTRA_LOGS {
+				if testing {
 					log.Printf("✗ %s at %s CANNOT move (0 legal moves)", pieceName, IndexToSqaureName(from))
 				}
 			}
@@ -600,10 +594,6 @@ func MakeMove(board *Board, from, to int8, promoteTo int8, testingFuture bool) M
 	movingPiece := GetPieceType(board, from, int8(color))
 	capturedPiece := GetPieceType(board, to, int8(enemyColor))
 	newHash := board.Hash // Start incremental hash updates
-
-	if !testingFuture {
-		log.Println("moving piece", IndexToSqaureName(from), IndexToSqaureName(to))
-	}
 
 	if movingPiece == King && abs(int(to-from)) == 2 {
 		var rookFrom, rookTo int8

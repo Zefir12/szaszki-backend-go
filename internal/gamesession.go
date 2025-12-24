@@ -452,7 +452,7 @@ func (g *GameSession) hasPlayableMove(cards []int8) bool {
 	cfg, _ := config.Instance.Get()
 
 	// Get all piece types that can move this turn
-	movers := g.Board.GetAllPiecesThatCanMoveThisTurn(int8(g.SideToMove))
+	movers := g.Board.GetAllPiecesThatCanMoveThisTurn(int8(g.SideToMove), false)
 
 	if cfg.SHOW_EXTRA_LOGS {
 		log.Printf("=== hasPlayableMove Debug ===")

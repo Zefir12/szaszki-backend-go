@@ -5,3 +5,4 @@ tests/shardingBench/results/*
 main.exe
 tmp/main.exe
 
+bench.txt
