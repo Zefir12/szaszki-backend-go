@@ -10,196 +10,6 @@ import (
 	"testing"
 )
 
-// FEN parsing and validation
-func ParseFEN(fen string) (*Board, error) {
-	parts := strings.Fields(fen)
-	if len(parts) < 4 {
-		return nil, fmt.Errorf("invalid FEN: not enough parts")
-	}
-
-	board := &Board{}
-	board.EnPassantSquare = -1
-
-	// Parse piece placement
-	ranks := strings.Split(parts[0], "/")
-	if len(ranks) != 8 {
-		return nil, fmt.Errorf("invalid FEN: expected 8 ranks")
-	}
-
-	for rankIdx, rankStr := range ranks {
-		file := 0
-		rank := 7 - rankIdx // FEN starts from rank 8
-
-		for _, ch := range rankStr {
-			if ch >= '1' && ch <= '8' {
-				file += int(ch - '0')
-			} else {
-				if file > 7 {
-					return nil, fmt.Errorf("invalid FEN: too many files")
-				}
-
-				square := rank*8 + file
-				bb := Bitboard(1) << square
-
-				color := White
-				if ch >= 'a' && ch <= 'z' {
-					color = Black
-					ch = ch - 32 // Convert to uppercase
-				}
-
-				switch ch {
-				case 'P':
-					board.Pawns[color] |= bb
-				case 'N':
-					board.Knights[color] |= bb
-				case 'B':
-					board.Bishops[color] |= bb
-				case 'R':
-					board.Rooks[color] |= bb
-				case 'Q':
-					board.Queens[color] |= bb
-				case 'K':
-					board.Kings[color] |= bb
-				default:
-					return nil, fmt.Errorf("invalid piece: %c", ch)
-				}
-
-				board.Occupied[color] |= bb
-				file++
-			}
-		}
-	}
-
-	// Parse side to move
-	if parts[1] == "w" {
-		board.Flags |= WhiteToMove
-	}
-
-	// Parse castling rights
-	if parts[2] != "-" {
-		for _, ch := range parts[2] {
-			switch ch {
-			case 'K':
-				board.Flags |= WK
-			case 'Q':
-				board.Flags |= WQ
-			case 'k':
-				board.Flags |= BK
-			case 'q':
-				board.Flags |= BQ
-			}
-		}
-	}
-
-	// Parse en passant square
-	if parts[3] != "-" {
-		file := int(parts[3][0] - 'a')
-		rank := int(parts[3][1] - '1')
-		board.EnPassantSquare = int8(rank*8 + file)
-	}
-
-	board.Hash = ComputeHash(board)
-	return board, nil
-}
-
-// Convert board to FEN
-func (b *Board) ToFEN() string {
-	var fen strings.Builder
-
-	// Piece placement
-	for rank := 7; rank >= 0; rank-- {
-		empty := 0
-		for file := 0; file < 8; file++ {
-			square := rank*8 + file
-			bb := Bitboard(1) << square
-
-			piece := ""
-			if b.Pawns[White]&bb != 0 {
-				piece = "P"
-			} else if b.Pawns[Black]&bb != 0 {
-				piece = "p"
-			} else if b.Knights[White]&bb != 0 {
-				piece = "N"
-			} else if b.Knights[Black]&bb != 0 {
-				piece = "n"
-			} else if b.Bishops[White]&bb != 0 {
-				piece = "B"
-			} else if b.Bishops[Black]&bb != 0 {
-				piece = "b"
-			} else if b.Rooks[White]&bb != 0 {
-				piece = "R"
-			} else if b.Rooks[Black]&bb != 0 {
-				piece = "r"
-			} else if b.Queens[White]&bb != 0 {
-				piece = "Q"
-			} else if b.Queens[Black]&bb != 0 {
-				piece = "q"
-			} else if b.Kings[White]&bb != 0 {
-				piece = "K"
-			} else if b.Kings[Black]&bb != 0 {
-				piece = "k"
-			}
-
-			if piece != "" {
-				if empty > 0 {
-					fen.WriteString(fmt.Sprintf("%d", empty))
-					empty = 0
-				}
-				fen.WriteString(piece)
-			} else {
-				empty++
-			}
-		}
-		if empty > 0 {
-			fen.WriteString(fmt.Sprintf("%d", empty))
-		}
-		if rank > 0 {
-			fen.WriteString("/")
-		}
-	}
-
-	// Side to move
-	if b.Flags&WhiteToMove != 0 {
-		fen.WriteString(" w ")
-	} else {
-		fen.WriteString(" b ")
-	}
-
-	// Castling rights
-	castling := ""
-	if b.Flags&WK != 0 {
-		castling += "K"
-	}
-	if b.Flags&WQ != 0 {
-		castling += "Q"
-	}
-	if b.Flags&BK != 0 {
-		castling += "k"
-	}
-	if b.Flags&BQ != 0 {
-		castling += "q"
-	}
-	if castling == "" {
-		castling = "-"
-	}
-	fen.WriteString(castling)
-
-	// En passant
-	if b.EnPassantSquare >= 0 {
-		fen.WriteString(" " + IndexToSqaureName(b.EnPassantSquare))
-	} else {
-		fen.WriteString(" -")
-	}
-
-	// Halfmove clock (for 50-move rule)
-	fen.WriteString(fmt.Sprintf(" %d", b.HalfmoveClock))
-
-	// Fullmove number
-	fen.WriteString(fmt.Sprintf(" %d", b.FullmoveNumber))
-
-	return fen.String()
-}
-
 // Test starting position
 func TestStartingPosition(t *testing.T) {
 	board := NewStartingPosition()
@@ -721,6 +531,67 @@ func SANToMove(board *Board, san string) (Move, error) {
 	return Move{}, fmt.Errorf("cannot resolve SAN move: %s", san)
 }
 
+func TestGetAllPiecesThatCanLegallyMoveThisTurn_StartingPosition(t *testing.T) {
+	board := NewStartingPosition()
+
+	// Both sides should be able to move pawns and knights
+	piecesToCheck := CanPawn | CanKnight
+	if board.GeAllPiecesThatCanMoveLegallyThisTurn(White, piecesToCheck) != piecesToCheck {
+		t.Error("White should be able to move pawns and knights from starting position")
+	}
+
+	if board.GeAllPiecesThatCanMoveLegallyThisTurn(Black, piecesToCheck) != piecesToCheck {
+		t.Error("Black should be able to move pawns and knights from starting position")
+	}
+}
+
+func TestGetAllPiecesThatCanLegallyMoveThisTurn_CheckSituation(t *testing.T) {
+	board, _ := ParseFEN("8/8/k7/1b6/8/3R4/4K3/8 w - - 0 1")
+
+	// Both sides should be able to move pawns and knights
+	piecesToCheck := CanKing
+	if board.GeAllPiecesThatCanMoveLegallyThisTurn(White, piecesToCheck) != piecesToCheck {
+		t.Error("White should be able to move only king")
+	}
+
+	board, _ = ParseFEN("8/8/k7/1r6/8/3B4/4K3/8 b - - 0 1")
+	piecesToCheck = CanKing
+	if board.GeAllPiecesThatCanMoveLegallyThisTurn(Black, piecesToCheck) != piecesToCheck {
+		t.Error("Black should be able to move only king")
+	}
+}
+
+func TestGetAllPiecesThatCanLegallyMoveThisTurn_Stalemate(t *testing.T) {
+	// Black is stalemated
+	board, _ := ParseFEN("7k/5Q2/6K1/8/8/8/8/8 b - - 0 1")
+
+	piecesToCheck := CanPawn | CanKnight | CanBishop | CanRook | CanQueen | CanKing
+	if board.GeAllPiecesThatCanMoveLegallyThisTurn(Black, piecesToCheck) != 0 {
+		t.Error("Black should have no legal moves (stalemate)")
+	}
+}
+
+func TestGetAllPiecesThatCanLegallyMoveThisTurn_Checkmate(t *testing.T) {
+	// Black is checkmated
+	board, _ := ParseFEN("7k/6Q1/6K1/8/8/8/8/8 b - - 0 1")
+
+	piecesToCheck := CanPawn | CanKnight | CanBishop | CanRook | CanQueen | CanKing
+	if board.GeAllPiecesThatCanMoveLegallyThisTurn(Black, piecesToCheck) != 0 {
+		t.Error("Black should have no legal moves (checkmate)")
+	}
+}
+
+func TestGetAllPiecesThatCanLegallyMoveThisTurn_OnlyCheckRooks(t *testing.T) {
+	board, _ := ParseFEN("8/8/8/8/8/8/8/R3K2k b - - 1 1")
+
+	piecesToCheck := CanRook
+	result := board.GeAllPiecesThatCanMoveLegallyThisTurn(White, piecesToCheck)
+
+	if result != CanRook {
+		t.Errorf("Only rook should be movable, got %b", result)
+	}
+}
+
 type PGNTest struct {
 	Name     string
 	PGN      string
@@ -821,7 +692,6 @@ func TestPGNGames(t *testing.T) {
 	}
 }
 
-// ExtractFinalFEN reads the PGN text and returns the FEN from the [CurrentPosition "..."] header
 func ExtractFinalFEN(pgn string) (string, error) {
 	scanner := bufio.NewScanner(strings.NewReader(pgn))
 	for scanner.Scan() {
@@ -839,93 +709,328 @@ func ExtractFinalFEN(pgn string) (string, error) {
 	return "", errors.New("CurrentPosition header not found")
 }
 
-// Test a full game from PGN
-// func TestPGNGame(t *testing.T) {
-// 	pgn := `
-// [Event "Live Chess"]
-// [Site "Chess.com"]
-// [Date "2025.12.23"]
-// [Round "-"]
-// [White "Cheer_Down"]
-// [Black "Chessbard1972"]
-// [Result "1-0"]
-// [Tournament "https://www.chess.com/tournament/live/titled-tuesday-blitz-december-23-2025-6110589"]
-// [CurrentPosition "8/8/6P1/7k/5K1N/b7/8/8 b - - 0 95"]
-// [Timezone "UTC"]
-// [ECO "D30"]
-// [ECOUrl "https://www.chess.com/openings/Queens-Gambit-Declined-Pseudo-Tarrasch-Defense-4.e3"]
-// [UTCDate "2025.12.23"]
-// [UTCTime "16:11:07"]
-// [WhiteElo "2649"]
-// [BlackElo "2416"]
-// [TimeControl "300"]
-// [Termination "Cheer_Down won on time"]
-// [StartTime "16:11:07"]
-// [EndDate "2025.12.23"]
-// [EndTime "16:21:15"]
-// [Link "https://www.chess.com/analysis/game/live/160819629725/analysis?move=188"]
-// [WhiteUrl "https://images.chesscomfiles.com/uploads/v1/user/49542020.3c660b52.50x50o.4b101c77be84.jpeg"]
-// [WhiteCountry "75"]
-// [WhiteTitle "CM"]
-// [BlackUrl "https://images.chesscomfiles.com/uploads/v1/user/73534598.42e69e19.50x50o.8758ab788452.jpeg"]
-// [BlackCountry "54"]
-// [BlackTitle "FM"]
+func TestCanAnyPawnMove_StartingPosition(t *testing.T) {
+	board := NewStartingPosition()
 
-// 1. d4 d5 2. c4 e6 3. Nf3 c5 4. e3 Nf6 5. a3 a6 6. dxc5 Bxc5 7. b4 Ba7 8. Bb2 O-O
-// 9. Nbd2 Qe7 10. Qb3 Rd8 11. Be2 Nc6 12. O-O dxc4 13. Nxc4 b5 14. Nce5 Bb7 15.
-// Rac1 Rac8 16. Nxc6 Bxc6 17. Be5 Bd5 18. Qb2 Ne8 19. h3 f6 20. Bd4 Bb8 21. Rxc8
-// Rxc8 22. Rc1 Rd8 23. Bd1 Nd6 24. Bc5 Qc7 25. Bxd6 Qxd6 26. g3 Ba7 27. Qc3 Bc4
-// 28. Bb3 Bxb3 29. Qxb3 Kf7 30. Qc2 Qd5 31. Kg2 h5 32. Qh7 Bb6 33. Rc2 a5 34. Rd2
-// Qf5 35. Qxf5 exf5 36. Rxd8 Bxd8 37. Nd4 axb4 38. axb4 Be7 39. Nxf5 Bxb4 40. Nd4
-// Bc5 41. Nxb5 Ke6 42. Nc3 f5 43. Kf1 g5 44. Ke2 Ke5 45. Nb1 f4 46. exf4+ gxf4 47.
-// g4 hxg4 48. hxg4 Ke4 49. Nd2+ Ke5 50. Kf3 Ba7 51. Ne4 Bb8 52. Ng5 Kf6 53. Nh3
-// Kg6 54. Nxf4+ Kg5 55. Nh3+ Kh4 56. Ng1 Ba7 57. Ne2 Bxf2 58. Nf4 Ba7 59. Ng2+ Kg5
-// 60. Kg3 Bb8+ 61. Kf3 Ba7 62. Ne1 Bb8 63. Nd3 Bd6 64. Nf2 Bc7 65. Ne4+ Kg6 66.
-// Kg2 Bb8 67. Kf1 Be5 68. Ke2 Bb8 69. Kd3 Ba7 70. Kc4 Be3 71. Kd5 Bc1 72. Ke6 Be3
-// 73. Kd7 Bc1 74. Kc6 Be3 75. Kb5 Bc1 76. Kc4 Be3 77. Kc3 Bc1 78. Kd3 Bg5 79. Ke2
-// Bf4 80. Kf1 Bg5 81. Kg2 Bh6 82. Kh3 Bg5 83. Nf2 Bc1 84. Nd3 Bg5 85. Ne5+ Kf6 86.
-// Nf3 Kg6 87. Kg2 Bf4 88. Kf2 Bc1 89. Ke2 Ba3 90. Kd3 Kf6 91. Ke4 Kg6 92. Kf4 Kf6
-// 93. g5+ Kg6 94. Nh4+ Kh5 95. g6 1-0`
+	// Both sides should be able to move pawns
+	if !board.CanAnyPawnMove(White) {
+		t.Error("White should be able to move pawns from starting position")
+	}
 
-// 	// --- Parse PGN ---
-// 	games, err := ParsePGNReader(strings.NewReader(pgn))
-// 	if err != nil {
-// 		t.Fatal(err)
-// 	}
-// 	if len(games) != 1 {
-// 		t.Fatalf("Expected 1 game, got %d", len(games))
-// 	}
+	if !board.CanAnyPawnMove(Black) {
+		t.Error("Black should be able to move pawns from starting position")
+	}
+}
 
-// 	game := games[0]
-// 	board := NewStartingPosition()
+func TestCanAnyPawnMove_NoPawns(t *testing.T) {
+	board, _ := ParseFEN("rnbqkbnr/8/8/8/8/8/8/RNBQKBNR w KQkq - 0 1")
 
-// 	// --- Replay moves ---
-// 	for i, san := range game.Moves {
-// 		move, err := SANToMove(&board, san)
-// 		if err != nil {
-// 			t.Fatalf("Move %d (%s) failed: %v", i+1, san, err)
-// 		}
-// 		MakeMove(&board, move.From, move.To, move.Promotion, false)
-// 		fen := board.ToFEN() // assuming you have a board.FEN() method
-// 		t.Logf("Move %d: %s -> FEN: %s", i+1, san, fen)
-// 	}
+	if board.CanAnyPawnMove(White) {
+		t.Error("White should not be able to move pawns when they have none")
+	}
 
-// 	// --- Compare final FEN (ignore clocks) ---
-// 	expectedFEN := "8/1p4k1/8/8/8/2q5/1r6/3K4 w - - 18 62"
+	if board.CanAnyPawnMove(Black) {
+		t.Error("Black should not be able to move pawns when they have none")
+	}
+}
 
-// 	engineParts := strings.Fields(board.ToFEN())
-// 	expectedParts := strings.Fields(expectedFEN)
+func TestCanAnyPawnMove_BlockedPawns(t *testing.T) {
+	// All white and black pawns blocked
+	board, _ := ParseFEN("4k3/8/pppppppp/rrrrrrrr/RRRRRRRR/PPPPPPPP/8/5K2 w - - 0 1")
 
-// 	engineCore := strings.Join(engineParts[:4], " ")
-// 	expectedCore := strings.Join(expectedParts[:4], " ")
+	if board.CanAnyPawnMove(White) {
+		t.Error("White pawns should be completely blocked")
+	}
 
-// 	if engineCore != expectedCore {
-// 		t.Fatalf(
-// 			"Final FEN mismatch\nExpected: %s\nGot:      %s",
-// 			expectedCore,
-// 			engineCore,
-// 		)
-// 	}
+	if board.CanAnyPawnMove(Black) {
+		t.Error("Black pawns should be completely blocked")
+	}
+}
 
-// 	t.Log("PGN replay successful and final FEN matches Chess.com")
-// }
+func TestCanAnyPawnMove_SinglePush(t *testing.T) {
+	// White pawn on e2 can push to e3
+	board, _ := ParseFEN("8/8/8/8/8/8/4P3/8 w - - 0 1")
+
+	if !board.CanAnyPawnMove(White) {
+		t.Error("White should be able to push pawn from e2")
+	}
+
+	// Black pawn on e7 can push to e6
+	board, _ = ParseFEN("8/4p3/8/8/8/8/8/8 b - - 0 1")
+
+	if !board.CanAnyPawnMove(Black) {
+		t.Error("Black should be able to push pawn from e7")
+	}
+}
+
+func TestCanAnyPawnMove_DoublePush(t *testing.T) {
+	// White pawn on e2 can double push
+	board, _ := ParseFEN("8/8/8/8/8/8/4P3/8 w - - 0 1")
+
+	if !board.CanAnyPawnMove(White) {
+		t.Error("White should be able to double push from e2")
+	}
+
+	// Black pawn on e7 can double push
+	board, _ = ParseFEN("8/4p3/8/8/8/8/8/8 b - - 0 1")
+
+	if !board.CanAnyPawnMove(Black) {
+		t.Error("Black should be able to double push from e7")
+	}
+}
+
+func TestCanAnyPawnMove_DoublePushBlocked(t *testing.T) {
+	// White pawn on e2, piece on e4 (can still single push to e3)
+	board, _ := ParseFEN("8/8/8/8/4n3/8/4P3/8 w - - 0 1")
+
+	if !board.CanAnyPawnMove(White) {
+		t.Error("White should still be able to single push")
+	}
+
+	// Completely blocked
+	board, _ = ParseFEN("8/8/8/8/8/4n3/4P3/8 w - - 0 1")
+
+	if board.CanAnyPawnMove(White) {
+		t.Error("White pawn should be completely blocked")
+	}
+}
+
+func TestCanAnyPawnMove_CaptureAvailable(t *testing.T) {
+	// White pawn can capture black knight
+	board, _ := ParseFEN("8/8/8/8/3n4/2P5/8/8 w - - 0 1")
+
+	if !board.CanAnyPawnMove(White) {
+		t.Error("White should be able to capture on d4")
+	}
+
+	// Black pawn can capture white knight
+	board, _ = ParseFEN("8/8/2p5/3N4/8/8/8/8 b - - 0 1")
+
+	if !board.CanAnyPawnMove(Black) {
+		t.Error("Black should be able to capture on d5")
+	}
+}
+
+func TestCanAnyPawnMove_EnPassantAvailable(t *testing.T) {
+	// White pawn can capture en passant on d6
+	board, _ := ParseFEN("rnbqkb1r/ppp1pppp/7n/3pP3/8/8/PPPP1PPP/RNBQKBNR w KQkq d6 0 3")
+
+	if !board.CanAnyPawnMove(White) {
+		t.Error("White should be able to capture en passant on e6")
+	}
+
+	// Black pawn can capture en passant on e3
+	board, _ = ParseFEN("8/8/8/8/3Pp3/8/8/8 b - e3 0 1")
+
+	if !board.CanAnyPawnMove(Black) {
+		t.Error("Black should be able to capture en passant on e3")
+	}
+}
+
+func TestCanAnyPawnMove_PromotionRank(t *testing.T) {
+	// White pawn on 7th rank can promote
+	board, _ := ParseFEN("8/4P3/8/8/8/8/8/8 w - - 0 1")
+
+	if !board.CanAnyPawnMove(White) {
+		t.Error("White should be able to push pawn to promotion")
+	}
+
+	// Black pawn on 2nd rank can promote
+	board, _ = ParseFEN("8/8/8/8/8/8/4p3/8 b - - 0 1")
+
+	if !board.CanAnyPawnMove(Black) {
+		t.Error("Black should be able to push pawn to promotion")
+	}
+}
+
+func TestCanAnyPawnMove_ComplexPosition(t *testing.T) {
+	// Multiple pawns, some blocked, some free
+	board, _ := ParseFEN("7k/8/8/2ppp3/3P4/8/PP6/6K1 w - - 0 1")
+
+	if !board.CanAnyPawnMove(White) {
+		t.Error("White should be able to move pawns (a2, b2, or captures with d4)")
+	}
+
+	board, _ = ParseFEN("8/8/8/2ppp3/3P4/8/PP6/8 b - - 0 1")
+
+	if !board.CanAnyPawnMove(Black) {
+		t.Error("Black should be able to move pawns (c5, e5 forward or d5 captures)")
+	}
+}
+
+func TestCanAnyPawnMove_OnlyCapturesPossible(t *testing.T) {
+	// White pawn blocked in front but can capture
+	board, _ := ParseFEN("7k/8/8/8/8/2npn3/3P4/7K w - - 0 1")
+
+	if !board.CanAnyPawnMove(White) {
+		t.Error("White should be able to capture on c3 or e3")
+	}
+}
+
+func TestCanAnyPawnMove_AllMovesBlocked(t *testing.T) {
+	// Pawn completely surrounded by own pieces
+	board, _ := ParseFEN("7k/8/8/8/3R4/2RPR3/8/7K w - - 0 1")
+
+	if board.CanAnyPawnMove(White) {
+		t.Error("White pawns should all be blocked")
+	}
+}
+
+func TestCanAnyPawnMove_MixedBlockedAndFree(t *testing.T) {
+	// Some pawns blocked, one free
+	board, _ := ParseFEN("8/8/8/pppp4/BBBB4/PPPP4/7P/8 w - - 0 1")
+
+	if !board.CanAnyPawnMove(White) {
+		t.Error("White should be able to move h2 pawn")
+	}
+}
+
+func TestCanAnyPawnMove_PawnsBlockedFromPromoting(t *testing.T) {
+	// Pawn on 7th rank, blocked from promoting and no other move
+	board, _ := ParseFEN("4n2k/4P3/8/8/8/8/8/7K w - - 0 1")
+
+	if board.CanAnyPawnMove(White) {
+		t.Error("White pawn should be blocked from promoting")
+	}
+
+	//Pawn on 2th rank, blocked from promoting and no other move
+	board, _ = ParseFEN("7k/8/8/8/8/8/4p3/4N2K b - - 0 1")
+
+	if board.CanAnyPawnMove(Black) {
+		t.Error("Black should be able to capture and promote")
+	}
+}
+
+func TestCanAnyPawnMove_CaptureOnPromotionRank(t *testing.T) {
+	// White pawn can capture and promote
+	board, _ := ParseFEN("3n3k/4P3/8/8/8/8/8/7K w - - 0 1")
+
+	if !board.CanAnyPawnMove(White) {
+		t.Error("White should be able to capture and promote")
+	}
+
+	// Black pawn can capture and promote
+	board, _ = ParseFEN("7k/8/8/8/8/8/4p3/3N3K b - - 0 1")
+
+	if !board.CanAnyPawnMove(Black) {
+		t.Error("Black should be able to capture and promote")
+	}
+}
+
+func TestCanAnyRookMove_StartingPosition(t *testing.T) {
+	board := NewStartingPosition()
+
+	// At the very start, rooks are blocked by pawns
+	if board.CanAnyRookMove(White) {
+		t.Error("White rooks should not be able to move from starting position")
+	}
+	if board.CanAnyRookMove(Black) {
+		t.Error("Black rooks should not be able to move from starting position")
+	}
+}
+
+func TestCanAnyRookMove_ClearPath(t *testing.T) {
+	// White rook on a1 with empty file
+	board, _ := ParseFEN("R7/7k/8/8/8/7K/8/8 w - - 0 1")
+	if !board.CanAnyRookMove(White) {
+		t.Error("White rook on a1 should be able to move freely")
+	}
+
+	// Black rook on h8 with empty file
+	board, _ = ParseFEN("7r/5k2/8/8/8/4K3/8/8 b - - 0 1")
+	if !board.CanAnyRookMove(Black) {
+		t.Error("Black rook on h8 should be able to move freely")
+	}
+}
+
+func TestCanAnyRookMove_BlockedRooks(t *testing.T) {
+	// Rooks completely blocked by own pieces
+	board, _ := ParseFEN("RRRRRRKR/PPPPPPPP/8/8/8/8/pppppppp/rrrrrrkr w - - 0 1")
+	if board.CanAnyRookMove(White) {
+		t.Error("White rooks should all be blocked")
+	}
+	if board.CanAnyRookMove(Black) {
+		t.Error("Black rooks should all be blocked")
+	}
+}
+
+func TestCanAnyRookMove_SomeBlockedSomeFree(t *testing.T) {
+	// White rook on a1 blocked, rook on h1 free
+	board, _ := ParseFEN("RN3K1R/NN6/8/8/8/8/8/5k2 w - - 0 1")
+	if !board.CanAnyRookMove(White) {
+		t.Error("White should be able to move at least one rook")
+	}
+}
+
+func TestCanAnyRookMove_CaptureAvailable(t *testing.T) {
+	// White rook can capture black piece
+	board, _ := ParseFEN("RN3k2/pN6/8/8/8/8/5K2/8 w - - 0 1")
+	if !board.CanAnyRookMove(White) {
+		t.Error("White rook should be able to capture black pawn")
+	}
+
+	// Black rook can capture white piece
+	board, _ = ParseFEN("8/8/4k3/8/3K4/8/6nP/6nr b - - 0 1")
+	if !board.CanAnyRookMove(Black) {
+		t.Error("Black rook should be able to capture white pawn")
+	}
+}
+
+func TestCanAnyRookMoveSafe_StartingPosition(t *testing.T) {
+	board := NewStartingPosition()
+
+	// At the very start, rooks are blocked by pawns
+	if board.CanAnyRookMoveSafe(White) {
+		t.Error("White rooks should not be able to move from starting position")
+	}
+	if board.CanAnyRookMoveSafe(Black) {
+		t.Error("Black rooks should not be able to move from starting position")
+	}
+}
+
+func TestCanAnyRookMoveSafe_ClearPath(t *testing.T) {
+	// White rook on a1 with empty file
+	board, _ := ParseFEN("R7/7k/8/8/8/7K/8/8 w - - 0 1")
+	if !board.CanAnyRookMoveSafe(White) {
+		t.Error("White rook on a1 should be able to move freely")
+	}
+
+	// Black rook on h8 with empty file
+	board, _ = ParseFEN("7r/5k2/8/8/8/4K3/8/8 b - - 0 1")
+	if !board.CanAnyRookMoveSafe(Black) {
+		t.Error("Black rook on h8 should be able to move freely")
+	}
+}
+
+func TestCanAnyRookMoveSafe_BlockedRooks(t *testing.T) {
+	// Rooks completely blocked by own pieces
+	board, _ := ParseFEN("RRRRRRKR/PPPPPPPP/8/8/8/8/pppppppp/rrrrrrkr w - - 0 1")
+	if board.CanAnyRookMoveSafe(White) {
+		t.Error("White rooks should all be blocked")
+	}
+	if board.CanAnyRookMoveSafe(Black) {
+		t.Error("Black rooks should all be blocked")
+	}
+}
+
+func TestCanAnyRookMoveSafe_SomeBlockedSomeFree(t *testing.T) {
+	// White rook on a1 blocked, rook on h1 free
+	board, _ := ParseFEN("RN3K1R/NN6/8/8/8/8/8/5k2 w - - 0 1")
+	if !board.CanAnyRookMoveSafe(White) {
+		t.Error("White should be able to move at least one rook")
+	}
+}
+
+func TestCanAnyRookMoveSafe_CantMoveCouseCheck(t *testing.T) {
+	// White rook has clear path to move but king would be left in check
+	board, _ := ParseFEN("8/8/k7/1b6/8/3R4/4K3/8 w - - 0 1")
+	if board.CanAnyRookMoveSafe(White) {
+		t.Error("White rook shouldn't be able to move")
+	}
+
+	// Black rook has clear path to move but king would be left in check
+	board, _ = ParseFEN("8/8/k7/1r6/8/3B4/4K3/8 b - - 0 1")
+	if board.CanAnyRookMoveSafe(Black) {
+		t.Error("Black rook shouldn't be able to move")
+	}
+}

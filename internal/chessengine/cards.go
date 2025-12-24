@@ -22,26 +22,29 @@ func GetRandomCard() int8 {
 }
 
 func GetRandomValidCard(board *Board, color int8) int8 {
-	movers := board.GetAllPiecesThatCanMoveThisTurn(color, false)
-	if len(movers) == 0 {
-		return GetRandomCard() // fallback
+	// All pieces flag
+	allPieces := CanPawn | CanKnight | CanBishop | CanRook | CanQueen | CanKing
+
+	// Get all pieces that can legally move for this color
+	movers := board.GeAllPiecesThatCanMoveLegallyThisTurn(color, allPieces)
+
+	// If no legal moves, fallback to random card
+	if movers == 0 {
+		return GetRandomCard()
 	}
 
-	// Deduplicate piece types
-	uniquePieces := make(map[int8]struct{})
-	for _, p := range movers {
-		uniquePieces[p] = struct{}{}
-	}
-
-	// Convert map keys to slice
-	var pieceTypes []int8
-	for p := range uniquePieces {
-		pieceTypes = append(pieceTypes, p)
+	// Collect all set bits (piece types)
+	var available []int8
+	for i := range uint8(6) { // 0=Pawn, 1=Knight, ..., 5=King
+		if movers&(1<<i) != 0 {
+			available = append(available, int8(i))
+		}
 	}
 
 	// Pick a random piece type
-	enginePiece := pieceTypes[rand.Intn(len(pieceTypes))]
+	enginePiece := available[rand.Intn(len(available))]
 
+	// Convert back to card
 	return EnginePieceToCard(enginePiece)
 }
 

@@ -29,10 +29,25 @@ type Config struct {
 	cache   *ConfigValues
 	loading bool
 	mu      sync.Mutex
+	logf    func(format string, args ...any)
+}
+
+func NewConfig() *Config {
+	return &Config{
+		logf: func(format string, args ...any) {
+			fmt.Printf(format, args...)
+		},
+	}
 }
 
 // Singleton instance
-var Instance = &Config{}
+var Instance = NewConfig()
+
+func (c *Config) SetLogger(logf func(string, ...any)) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.logf = logf
+}
 
 func loadFromEnv(target interface{}) {
 	val := reflect.ValueOf(target).Elem()
@@ -100,7 +115,9 @@ func (c *Config) Get() (*ConfigValues, error) {
 	defer func() { c.loading = false }()
 
 	isProd := c.isProduction()
-	fmt.Printf("🔧 Loading config (%s mode)...\n", map[bool]string{true: "PROD", false: "DEV"}[isProd])
+	c.logf("🔧 Loading config (%s mode)...\n",
+		map[bool]string{true: "PROD", false: "DEV"}[isProd],
+	)
 
 	var cfg *ConfigValues
 	var err error
@@ -120,7 +137,7 @@ func (c *Config) Get() (*ConfigValues, error) {
 	}
 
 	c.cache = cfg
-	fmt.Printf("✅ Config loaded (%s): %+v\n", map[bool]string{true: "PROD", false: "DEV"}[isProd], cfg)
+	c.logf("✅ Config loaded (%s): %+v\n", map[bool]string{true: "PROD", false: "DEV"}[isProd], cfg)
 	return cfg, nil
 }
 

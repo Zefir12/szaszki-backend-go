@@ -35,8 +35,12 @@ run:
 
 # Run all tests with pretty output
 test:
-	gotestsum --format testname ./internal/chessengine
+	gotestsum --format testname ./internal/chessengine ./internal
 
 bench:
-	go test ./internal/chessengine -run=^$$ -bench=. -benchmem > benchmarkresults/engine-benchmark-v1.0.4.txt
-	benchstat benchmarkresults/engine-benchmark-v1.0.3.txt benchmarkresults/engine-benchmark-v1.0.4.txt
+	go test ./internal/chessengine -run=^$$ -bench=. -benchmem > benchmarkresults/engine-benchmark-v1.0.5.txt
+	benchstat benchmarkresults/engine-benchmark-v1.0.4.txt benchmarkresults/engine-benchmark-v1.0.5.txt
+
+benchsession:
+	go test ./internal -run=^$$ -bench=. -benchmem > benchmarkresults/session-benchmark-v1.0.5.txt
+	benchstat benchmarkresults/session-benchmark-v1.0.4.txt benchmarkresults/session-benchmark-v1.0.5.txt

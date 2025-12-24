@@ -1,0 +1,10 @@
+goos: windows
+goarch: amd64
+pkg: github.com/zefir/szaszki-go-backend/internal
+cpu: AMD Ryzen 7 7730U with Radeon Graphics         
+BenchmarkCardLogicRemoval-16    	46421842	        24.43 ns/op	       8 B/op	       1 allocs/op
+BenchmarkCardLogicAdding-16     	 2474223	       476.1 ns/op	       0 B/op	       0 allocs/op
+BenchmarkHasPlayableMove-16     	 1000000	      1136 ns/op	      24 B/op	       2 allocs/op
+BenchmarkFullCardCycle-16       	 4391862	       272.9 ns/op	       8 B/op	       1 allocs/op
+PASS
+ok  	github.com/zefir/szaszki-go-backend/internal	5.569s

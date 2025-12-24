@@ -285,14 +285,12 @@ func (g *GameSession) CardLogicRemoval(from int8, cardsToReroll [5]int8, cfg *co
 
 	var removedCardIndexes []int
 	cards := &g.WhiteCards
-	opponent := chess.Black
 
 	if g.SideToMove == chess.Black {
 		cards = &g.BlackCards
-		opponent = chess.White
 	}
 
-	piece := g.Board.GetPieceType(from, int8(opponent))
+	piece := g.Board.GetPieceType(from, int8(g.SideToMove))
 
 	if cfg.SHOW_EXTRA_LOGS {
 		println("Played piece type:", piece)
@@ -449,52 +447,16 @@ func (g *GameSession) handleTimeLoss(side int) {
 }
 
 func (g *GameSession) hasPlayableMove(cards []int8) bool {
-	cfg, _ := config.Instance.Get()
-
-	// Get all piece types that can move this turn
-	movers := g.Board.GetAllPiecesThatCanMoveThisTurn(int8(g.SideToMove), false)
-
-	if cfg.SHOW_EXTRA_LOGS {
-		log.Printf("=== hasPlayableMove Debug ===")
-		log.Printf("Movers (piece types that can move): %v", movers)
-		log.Printf("Player cards: %v", cards)
-	}
-
-	if len(movers) == 0 {
-		if cfg.SHOW_EXTRA_LOGS {
-			log.Println("No movers - returning false")
-		}
-		return false
-	}
-
-	// Create a set of piece types that can move
-	canMove := make(map[int8]bool)
-	for _, pieceType := range movers {
-		canMove[pieceType] = true
-		if cfg.SHOW_EXTRA_LOGS {
-			log.Printf("Piece type %d can move", pieceType)
-		}
-	}
-
-	// Check if any card matches a piece that can move
+	var cardPieces uint8 = 0
 	for _, card := range cards {
 		pieceType := chess.CardToEnginePiece(card)
-		if cfg.SHOW_EXTRA_LOGS {
-			log.Printf("Card %d (%s) -> piece type %d", card, chess.CardName(card), pieceType)
-			log.Printf("Can this piece type move? %v", canMove[int8(pieceType)])
+		if pieceType < 0 {
+			continue
 		}
-		if canMove[int8(pieceType)] {
-			if cfg.SHOW_EXTRA_LOGS {
-				log.Println("MATCH FOUND - returning true")
-			}
-			return true
-		}
+		cardPieces |= 1 << pieceType
 	}
 
-	if cfg.SHOW_EXTRA_LOGS {
-		log.Println("No matching cards - returning false")
-	}
-	return false
+	return g.Board.GeAllPiecesThatCanMoveLegallyThisTurn(int8(g.SideToMove), cardPieces) > 0
 }
 
 func (g *GameSession) shouldEndGame() bool {

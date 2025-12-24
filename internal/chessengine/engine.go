@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"log"
 	"math/bits"
-	"math/rand"
+	"strings"
 )
 
 //https://en.wikipedia.org/wiki/Bitboard
@@ -15,8 +15,6 @@ const (
 	White = 1
 	Black = 0
 )
-
-const zobristSeed = 0xCAFEBABE
 
 const (
 	fileA Bitboard = 0x0101010101010101
@@ -49,6 +47,10 @@ var castlingRightsBySquare = [64]uint8{
 	^BQ, 0xFF, 0xFF, 0xFF, ^(BK | BQ), 0xFF, 0xFF, ^BK, // rank 8 (Black)
 }
 
+type Move struct {
+	From, To, Promotion int8
+}
+
 const (
 	WK uint8 = 1 << 0 // White kingside
 	WQ uint8 = 1 << 1 // White queenside
@@ -61,7 +63,9 @@ const (
 var knightMoves [64]Bitboard
 var kingMoves [64]Bitboard
 
-// for zobrist
+var rookDeltas = [4]int{8, -8, 1, -1}
+var bishopDeltas = [4]int{9, -9, 7, -7}
+
 const (
 	Pawn = iota
 	Knight
@@ -70,15 +74,6 @@ const (
 	Queen
 	King
 )
-
-var zobristTable [6][64]uint64
-var zobristEnPassant [64]uint64
-var zobristSideToMove uint64
-var zobristCastlingRights [2][2]uint64
-var zobristPieces [2][6][64]uint64 // [color][piece][square]
-var zobristCastling [16]uint64     // for all castling flag combinations
-
-var rng *rand.Rand
 
 // === Board Representation ===
 type Board struct {
@@ -104,45 +99,9 @@ func (b *Board) SideToMove() uint8 {
 }
 
 func init() {
-	for i := 0; i < 64; i++ {
+	for i := range 64 {
 		knightMoves[i] = generateKnightMoves(i)
 		kingMoves[i] = generateKingMoves(i)
-	}
-	initZobrist()
-	initZobristExtended()
-}
-
-func initZobrist() {
-	rng = rand.New(rand.NewSource(zobristSeed))
-	for pieceType := 0; pieceType < 6; pieceType++ {
-		for sq := 0; sq < 64; sq++ {
-			zobristTable[pieceType][sq] = rng.Uint64()
-		}
-	}
-	for sq := 0; sq < 64; sq++ {
-		zobristEnPassant[sq] = rng.Uint64()
-	}
-	zobristSideToMove = rng.Uint64()
-	for color := 0; color < 2; color++ {
-		for side := 0; side < 2; side++ {
-			zobristCastlingRights[color][side] = rng.Uint64()
-		}
-	}
-}
-
-func initZobristExtended() {
-	// Initialize piece tables
-	for color := 0; color < 2; color++ {
-		for piece := 0; piece < 6; piece++ {
-			for sq := 0; sq < 64; sq++ {
-				zobristPieces[color][piece][sq] = rng.Uint64()
-			}
-		}
-	}
-
-	// Initialize castling combinations
-	for i := 0; i < 16; i++ {
-		zobristCastling[i] = rng.Uint64()
 	}
 }
 
@@ -186,14 +145,17 @@ func DoublePawnPush(pawns, empty Bitboard, isWhite bool) Bitboard {
 }
 
 func PawnAttacks(pawns Bitboard, enemy Bitboard, isWhite bool) Bitboard {
-	if isWhite {
-		left := (pawns << 7) & ^fileH & enemy
-		right := (pawns << 9) & ^fileA & enemy
-		return left | right
+	if enemy == 0 {
+		return 0
 	}
-	left := (pawns >> 9) & ^fileH & enemy
-	right := (pawns >> 7) & ^fileA & enemy
-	return left | right
+	if isWhite {
+		left := (pawns << 7) & ^fileH
+		right := (pawns << 9) & ^fileA
+		return (left | right) & enemy
+	}
+	left := (pawns >> 9) & ^fileH
+	right := (pawns >> 7) & ^fileA
+	return (left | right) & enemy
 }
 
 func generateKnightMoves(sq int) Bitboard {
@@ -224,11 +186,6 @@ func generateKingMoves(sq int) Bitboard {
 	return moves
 }
 
-var directions = map[string][]int{
-	"rook":   {8, -8, 1, -1},
-	"bishop": {9, -9, 7, -7},
-}
-
 func NewStartingPosition() Board {
 	var b Board
 
@@ -255,25 +212,18 @@ func NewStartingPosition() Board {
 	b.Flags |= WK | WQ | BK | BQ | WhiteToMove // enable all castling and set side to white
 
 	b.EnPassantSquare = -1
-	b.Hash = ComputeHash(&b)
 	b.FullmoveNumber = 1
 
 	return b
 }
 
-func slidingAttacks(sq int, occupied Bitboard, deltas []int) Bitboard {
+func slidingAttacksRook(sq int, occupied Bitboard) Bitboard {
 	var attacks Bitboard
-	for _, d := range deltas {
+	for _, d := range rookDeltas {
 		for s := sq + d; s >= 0 && s < 64; s += d {
-			// Check for horizontal wrap-around
-			if (d == 1 || d == -1) && s/8 != sq/8 {
+			if (d == 1 || d == -1) && s/8 != (s-d)/8 {
 				break
 			}
-			// Check for diagonal wrap-around
-			if (d == 9 || d == -7 || d == 7 || d == -9) && abs(s%8-((s-d)%8)) != 1 {
-				break
-			}
-
 			attacks |= (1 << s)
 			if (occupied & (1 << s)) != 0 {
 				break
@@ -283,11 +233,30 @@ func slidingAttacks(sq int, occupied Bitboard, deltas []int) Bitboard {
 	return attacks
 }
 
-func abs(x int) int {
-	if x < 0 {
-		return -x
+func slidingAttacksBishop(sq int, occupied Bitboard) Bitboard {
+	var attacks Bitboard
+	for _, d := range bishopDeltas {
+		for s := sq + d; s >= 0 && s < 64; s += d {
+			if abs(s%8-((s-d)%8)) != 1 {
+				break
+			}
+			attacks |= (1 << s)
+			if (occupied & (1 << s)) != 0 {
+				break
+			}
+		}
 	}
-	return x
+	return attacks
+}
+
+func slidingAttacksQueen(sq int, occupied Bitboard) Bitboard {
+	return slidingAttacksRook(sq, occupied) | slidingAttacksBishop(sq, occupied)
+}
+
+//go:inline
+func abs(x int) int {
+	mask := x >> 31
+	return (x + mask) ^ mask
 }
 
 func (board *Board) GetPieceType(square int8, color int8) int {
@@ -318,75 +287,157 @@ func GetPieceType(board *Board, square int8, color int8) int {
 }
 
 func (b *Board) HasLegalMoves(color int8) bool {
-	occupied := b.Occupied[White] | b.Occupied[Black]
+	ownOcc := b.Occupied[color]
+	enemyOcc := b.Occupied[1-color]
+	occupied := ownOcc | enemyOcc
+	empty := ^occupied
+	isWhite := color == White
 
-	// Iterate pieces by type
-	pieceLoops := []struct {
-		bb    Bitboard
-		moves func(from int) Bitboard
-	}{
-		{b.Pawns[color], func(from int) Bitboard {
-			single := SinglePawnPush(Bitboard(1)<<from, ^occupied, color == White)
-			attacks := PawnAttacks(Bitboard(1)<<from, b.Occupied[1-color], color == White)
-			return single | attacks
-		}},
-		{b.Knights[color], func(from int) Bitboard { return knightMoves[from] & ^b.Occupied[color] }},
-		{b.Bishops[color], func(from int) Bitboard {
-			return slidingAttacks(from, occupied, directions["bishop"]) & ^b.Occupied[color]
-		}},
-		{b.Rooks[color], func(from int) Bitboard {
-			return slidingAttacks(from, occupied, directions["rook"]) & ^b.Occupied[color]
-		}},
-		{b.Queens[color], func(from int) Bitboard {
-			return slidingAttacks(from, occupied, append(directions["rook"], directions["bishop"]...)) & ^b.Occupied[color]
-		}},
-		{b.Kings[color], func(from int) Bitboard { return kingMoves[from] & ^b.Occupied[color] }},
-	}
+	// === Pawns ===
+	for bb := b.Pawns[color]; bb != 0; {
+		from := int8(PopLSB(&bb))
+		fromBB := Bitboard(1) << from
 
-	for _, p := range pieceLoops {
-		for bb := p.bb; bb != 0; {
-			from := int8(PopLSB(&bb))
-			moves := p.moves(int(from))
-			for moves != 0 {
-				to := int8(PopLSB(&moves))
-				if to < 0 || to > 63 {
-					continue // skip invalid squares
-				}
-				if IsMoveLegal(b, from, to, 0) {
-					return true
-				}
+		moves := SinglePawnPush(fromBB, empty, isWhite) |
+			PawnAttacks(fromBB, enemyOcc, isWhite)
+
+		for moves != 0 {
+			to := int8(PopLSB(&moves))
+			if IsMoveLegal(b, from, to, 0) {
+				return true
 			}
 		}
 	}
 
-	// Castling
+	// === Knights ===
+	for bb := b.Knights[color]; bb != 0; {
+		from := int8(PopLSB(&bb))
+		moves := knightMoves[from] & ^ownOcc
+		if moves == 0 {
+			continue
+		}
+		for moves != 0 {
+			to := int8(PopLSB(&moves))
+			if IsMoveLegal(b, from, to, 0) {
+				return true
+			}
+		}
+	}
+
+	// === Bishops ===
+	for bb := b.Bishops[color]; bb != 0; {
+		from := int8(PopLSB(&bb))
+		moves := slidingAttacksBishop(int(from), occupied) & ^ownOcc
+		if moves == 0 {
+			continue
+		}
+		for moves != 0 {
+			to := int8(PopLSB(&moves))
+			if IsMoveLegal(b, from, to, 0) {
+				return true
+			}
+		}
+	}
+
+	// === Rooks ===
+	for bb := b.Rooks[color]; bb != 0; {
+		from := int8(PopLSB(&bb))
+		moves := slidingAttacksRook(int(from), occupied) & ^ownOcc
+		if moves == 0 {
+			continue
+		}
+		for moves != 0 {
+			to := int8(PopLSB(&moves))
+			if IsMoveLegal(b, from, to, 0) {
+				return true
+			}
+		}
+	}
+
+	// === Queens ===
+	for bb := b.Queens[color]; bb != 0; {
+		from := int8(PopLSB(&bb))
+		moves := slidingAttacksQueen(int(from), occupied) & ^ownOcc
+		if moves == 0 {
+			continue
+		}
+		for moves != 0 {
+			to := int8(PopLSB(&moves))
+			if IsMoveLegal(b, from, to, 0) {
+				return true
+			}
+		}
+	}
+
+	// === King ===
+	for bb := b.Kings[color]; bb != 0; {
+		from := int8(PopLSB(&bb))
+		moves := kingMoves[from] & ^ownOcc
+		for moves != 0 {
+			to := int8(PopLSB(&moves))
+			if IsMoveLegal(b, from, to, 0) {
+				return true
+			}
+		}
+	}
+
+	// === Castling ===
 	if CanCastle(b, color, true) || CanCastle(b, color, false) {
 		return true
 	}
-	log.Println("no legal moves")
+
 	return false
 }
 
-func IsSquareAttacked(sq int, board *Board, attackerColor int8) bool {
-	mask := Bitboard(1) << sq
-	if knightMoves[sq]&board.Knights[attackerColor] != 0 {
+func IsSquareAttacked(sq int, b *Board, attackerColor int8) bool {
+	occ := b.Occupied[White] | b.Occupied[Black]
+	target := Bitboard(1) << sq
+
+	// === Pawn attacks (fast, no function call) ===
+	if attackerColor == White {
+		// White pawns attack upward (from rank-1 perspective)
+		if ((target>>7)&^fileA)&b.Pawns[White] != 0 {
+			return true
+		}
+		if ((target>>9)&^fileH)&b.Pawns[White] != 0 {
+			return true
+		}
+	} else {
+		// Black pawns attack downward
+		if ((target<<7)&^fileH)&b.Pawns[Black] != 0 {
+			return true
+		}
+		if ((target<<9)&^fileA)&b.Pawns[Black] != 0 {
+			return true
+		}
+	}
+
+	// === Knights ===
+	if knightMoves[sq]&b.Knights[attackerColor] != 0 {
 		return true
 	}
-	if kingMoves[sq]&board.Kings[attackerColor] != 0 {
+
+	// === Kings ===
+	if kingMoves[sq]&b.Kings[attackerColor] != 0 {
 		return true
 	}
-	if PawnAttacks(mask, board.Pawns[attackerColor], attackerColor == Black) != 0 {
-		return true
+
+	// === Bishops / Queens ===
+	bq := b.Bishops[attackerColor] | b.Queens[attackerColor]
+	if bq != 0 {
+		if slidingAttacksBishop(sq, occ)&bq != 0 {
+			return true
+		}
 	}
-	allOccupied := board.Occupied[White] | board.Occupied[Black]
-	if slidingAttacks(sq, allOccupied, directions["bishop"])&
-		(board.Bishops[attackerColor]|board.Queens[attackerColor]) != 0 {
-		return true
+
+	// === Rooks / Queens ===
+	rq := b.Rooks[attackerColor] | b.Queens[attackerColor]
+	if rq != 0 {
+		if slidingAttacksRook(sq, occ)&rq != 0 {
+			return true
+		}
 	}
-	if slidingAttacks(sq, allOccupied, directions["rook"])&
-		(board.Rooks[attackerColor]|board.Queens[attackerColor]) != 0 {
-		return true
-	}
+
 	return false
 }
 
@@ -424,16 +475,15 @@ func IsPseudoLegal(board *Board, from, to int8, piece int, color int8) bool {
 		return knightMoves[from]&toBB != 0
 
 	case Bishop:
-		attacks := slidingAttacks(int(from), occupied, directions["bishop"])
+		attacks := slidingAttacksBishop(int(from), occupied)
 		return attacks&toBB != 0
 
 	case Rook:
-		attacks := slidingAttacks(int(from), occupied, directions["rook"])
+		attacks := slidingAttacksRook(int(from), occupied)
 		return attacks&toBB != 0
 
 	case Queen:
-		allDirs := append(directions["rook"], directions["bishop"]...)
-		attacks := slidingAttacks(int(from), occupied, allDirs)
+		attacks := slidingAttacksQueen(int(from), occupied)
 		return attacks&toBB != 0
 
 	case King:
@@ -486,6 +536,435 @@ func IsMoveLegal(board *Board, from, to, promoteTo int8) bool {
 	return !IsSquareAttacked(kingSq, &temp, int8(enemyColor))
 }
 
+func (b *Board) CanAnyPawnMove(color int8) bool {
+	occupied := b.Occupied[White] | b.Occupied[Black]
+	pawns := b.Pawns[color]
+	enemy := b.Occupied[1-color]
+	isWhite := color == White
+
+	if single := SinglePawnPush(pawns, ^occupied, isWhite); single != 0 {
+		return true
+	}
+	if attacks := PawnAttacks(pawns, enemy, isWhite); attacks != 0 {
+		return true
+	}
+	if double := DoublePawnPush(pawns, ^occupied, isWhite); double != 0 {
+		return true
+	}
+	if b.EnPassantSquare >= 0 {
+		enPassantBB := Bitboard(1) << b.EnPassantSquare
+		if enPassant := PawnAttacks(pawns, enPassantBB, isWhite); enPassant != 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func (b *Board) CanAnyRookMove(color int8) bool {
+	occupied := b.Occupied[White] | b.Occupied[Black]
+	rooks := b.Rooks[color]
+
+	for bb := rooks; bb != 0; {
+		from := int(PopLSB(&bb)) // get the rook square
+		// Compute rook attacks, excluding friendly pieces
+		moves := slidingAttacksRook(from, occupied) & ^b.Occupied[color]
+
+		// If any move is legal, return early
+		if moves != 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func (b *Board) CanAnyBishopMove(color int8) bool {
+	occupied := b.Occupied[White] | b.Occupied[Black]
+	bishops := b.Bishops[color]
+
+	for bb := bishops; bb != 0; {
+		from := int(PopLSB(&bb)) // get the ishop square
+		// Compute rook attacks, excluding friendly pieces
+		moves := slidingAttacksBishop(from, occupied) & ^b.Occupied[color]
+
+		// If any move is legal, return early
+		if moves != 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func (b *Board) CanAnyQueenMove(color int8) bool {
+	occupied := b.Occupied[White] | b.Occupied[Black]
+	queens := b.Queens[color]
+
+	for bb := queens; bb != 0; {
+		from := int(PopLSB(&bb)) // get the ishop square
+		// Compute queen attacks, excluding friendly pieces
+		moves := slidingAttacksQueen(from, occupied) & ^b.Occupied[color]
+
+		// If any move is legal, return early
+		if moves != 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func (b *Board) movePiece(from, to int, pieceType, color int8) {
+	// Create bitboards for from and to
+	fromBB := Bitboard(1) << from
+	toBB := Bitboard(1) << to
+
+	// Remove piece from its bitboard
+	switch pieceType {
+	case Pawn:
+		b.Pawns[color] &^= fromBB
+		b.Pawns[color] |= toBB
+	case Knight:
+		b.Knights[color] &^= fromBB
+		b.Knights[color] |= toBB
+	case Bishop:
+		b.Bishops[color] &^= fromBB
+		b.Bishops[color] |= toBB
+	case Rook:
+		b.Rooks[color] &^= fromBB
+		b.Rooks[color] |= toBB
+	case Queen:
+		b.Queens[color] &^= fromBB
+		b.Queens[color] |= toBB
+	case King:
+		b.Kings[color] &^= fromBB
+		b.Kings[color] |= toBB
+	}
+
+	// Remove any captured piece from enemy bitboards
+	enemy := 1 - color
+	allEnemy := b.Pawns[enemy] | b.Knights[enemy] | b.Bishops[enemy] |
+		b.Rooks[enemy] | b.Queens[enemy] | b.Kings[enemy]
+
+	if allEnemy&toBB != 0 {
+		if b.Pawns[enemy]&toBB != 0 {
+			b.Pawns[enemy] &^= toBB
+		} else if b.Knights[enemy]&toBB != 0 {
+			b.Knights[enemy] &^= toBB
+		} else if b.Bishops[enemy]&toBB != 0 {
+			b.Bishops[enemy] &^= toBB
+		} else if b.Rooks[enemy]&toBB != 0 {
+			b.Rooks[enemy] &^= toBB
+		} else if b.Queens[enemy]&toBB != 0 {
+			b.Queens[enemy] &^= toBB
+		} else if b.Kings[enemy]&toBB != 0 {
+			b.Kings[enemy] &^= toBB
+		}
+	}
+
+	// Update occupancy
+	b.Occupied[color] = b.Pawns[color] | b.Knights[color] | b.Bishops[color] |
+		b.Rooks[color] | b.Queens[color] | b.Kings[color]
+	b.Occupied[enemy] = b.Pawns[enemy] | b.Knights[enemy] | b.Bishops[enemy] |
+		b.Rooks[enemy] | b.Queens[enemy] | b.Kings[enemy]
+}
+
+func (b *Board) movePieceLight(from, to int8, color int8) (captured Bitboard) {
+	fromBB := Bitboard(1) << from
+	toBB := Bitboard(1) << to
+
+	// detect capture
+	captured = b.Occupied[1-color] & toBB
+
+	// remove captured piece
+	if captured != 0 {
+		b.Occupied[1-color] &^= toBB
+	}
+
+	// move piece
+	b.Occupied[color] &^= fromBB
+	b.Occupied[color] |= toBB
+
+	// pawn-specific
+	b.Pawns[color] &^= fromBB
+	b.Pawns[color] |= toBB
+
+	return captured
+}
+
+func (b *Board) undoMovePieceLight(from, to int8, color int8, captured Bitboard) {
+	fromBB := Bitboard(1) << from
+	toBB := Bitboard(1) << to
+
+	b.Occupied[color] &^= toBB
+	b.Occupied[color] |= fromBB
+
+	b.Pawns[color] &^= toBB
+	b.Pawns[color] |= fromBB
+
+	if captured != 0 {
+		b.Occupied[1-color] |= captured
+	}
+}
+
+func (b *Board) CanAnyPawnMoveSafe(color int8) bool {
+	occupied := b.Occupied[White] | b.Occupied[Black]
+	pawns := b.Pawns[color]
+	enemy := b.Occupied[1-color]
+	isWhite := color == White
+	enemyColor := 1 - color
+
+	kingSq := int(bits.TrailingZeros64(uint64(b.Kings[color])))
+
+	for bb := pawns; bb != 0; {
+		from := int8(PopLSB(&bb))
+		fromBB := Bitboard(1) << from
+
+		// 1️⃣ Single push
+		if moves := SinglePawnPush(fromBB, ^occupied, isWhite); moves != 0 {
+			to := int8(bits.TrailingZeros64(uint64(moves)))
+			cap := b.movePieceLight(from, to, color)
+			if !IsSquareAttacked(kingSq, b, int8(enemyColor)) {
+				b.undoMovePieceLight(from, to, color, cap)
+				return true
+			}
+			b.undoMovePieceLight(from, to, color, cap)
+		}
+
+		// 2️⃣ Captures
+		if moves := PawnAttacks(fromBB, enemy, isWhite); moves != 0 {
+			for m := moves; m != 0; {
+				to := int8(PopLSB(&m))
+				cap := b.movePieceLight(from, to, color)
+				if !IsSquareAttacked(kingSq, b, int8(enemyColor)) {
+					b.undoMovePieceLight(from, to, color, cap)
+					return true
+				}
+				b.undoMovePieceLight(from, to, color, cap)
+			}
+		}
+
+		// 3️⃣ Double push
+		if moves := DoublePawnPush(fromBB, ^occupied, isWhite); moves != 0 {
+			to := int8(bits.TrailingZeros64(uint64(moves)))
+			cap := b.movePieceLight(from, to, color)
+			if !IsSquareAttacked(kingSq, b, int8(enemyColor)) {
+				b.undoMovePieceLight(from, to, color, cap)
+				return true
+			}
+			b.undoMovePieceLight(from, to, color, cap)
+		}
+
+		// 4️⃣ En passant (CRITICAL: remove captured pawn!)
+		if b.EnPassantSquare >= 0 {
+			epBB := Bitboard(1) << b.EnPassantSquare
+			if PawnAttacks(fromBB, epBB, isWhite) != 0 {
+				capSq := int8(b.EnPassantSquare + map[bool]int8{true: -8, false: 8}[isWhite])
+				capturedPawnBB := Bitboard(1) << capSq
+
+				// simulate EP
+				b.Pawns[color] &^= fromBB
+				b.Pawns[color] |= epBB
+				b.Occupied[color] &^= fromBB
+				b.Occupied[color] |= epBB
+				b.Pawns[enemyColor] &^= capturedPawnBB
+				b.Occupied[enemyColor] &^= capturedPawnBB
+
+				if !IsSquareAttacked(kingSq, b, int8(enemyColor)) {
+					return true
+				}
+
+				// undo EP
+				b.Pawns[color] &^= epBB
+				b.Pawns[color] |= fromBB
+				b.Occupied[color] &^= epBB
+				b.Occupied[color] |= fromBB
+				b.Pawns[enemyColor] |= capturedPawnBB
+				b.Occupied[enemyColor] |= capturedPawnBB
+			}
+		}
+	}
+
+	return false
+}
+
+func (b *Board) CanAnyRookMoveSafe(color int8) bool {
+	occupied := b.Occupied[White] | b.Occupied[Black]
+	enemyColor := 1 - color
+
+	for bb := b.Rooks[color]; bb != 0; {
+		from := int(PopLSB(&bb))
+		moves := slidingAttacksRook(from, occupied) & ^b.Occupied[color]
+
+		for movesCopy := moves; movesCopy != 0; {
+			to := int(PopLSB(&movesCopy))
+
+			// Simulate move on temporary board
+			temp := *b
+			temp.movePiece(from, to, Rook, color)
+
+			kingSq := bits.TrailingZeros64(uint64(temp.Kings[color]))
+			if !IsSquareAttacked(kingSq, &temp, int8(enemyColor)) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func (b *Board) CanAnyBishopMoveSafe(color int8) bool {
+	occupied := b.Occupied[White] | b.Occupied[Black]
+	enemyColor := 1 - color
+
+	for bb := b.Bishops[color]; bb != 0; {
+		from := int(PopLSB(&bb))
+		moves := slidingAttacksBishop(from, occupied) & ^b.Occupied[color]
+
+		for movesCopy := moves; movesCopy != 0; {
+			to := int(PopLSB(&movesCopy))
+
+			// Simulate move on temporary board
+			temp := *b
+			temp.movePiece(from, to, Rook, color)
+
+			kingSq := bits.TrailingZeros64(uint64(temp.Kings[color]))
+			if !IsSquareAttacked(kingSq, &temp, int8(enemyColor)) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func (b *Board) CanAnyQueenMoveSafe(color int8) bool {
+	occupied := b.Occupied[White] | b.Occupied[Black]
+	enemyColor := 1 - color
+
+	for bb := b.Queens[color]; bb != 0; {
+		from := int(PopLSB(&bb))
+		moves := slidingAttacksQueen(from, occupied) & ^b.Occupied[color]
+
+		for movesCopy := moves; movesCopy != 0; {
+			to := int(PopLSB(&movesCopy))
+
+			// Simulate move on temporary board
+			temp := *b
+			temp.movePiece(from, to, Rook, color)
+
+			kingSq := bits.TrailingZeros64(uint64(temp.Kings[color]))
+			if !IsSquareAttacked(kingSq, &temp, int8(enemyColor)) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func (b *Board) CanAnyKnightMoveSafe(color int8) bool {
+	knights := b.Knights[color]
+	enemyColor := 1 - color
+
+	kingSq := int8(bits.TrailingZeros64(uint64(b.Kings[color])))
+
+	for bb := knights; bb != 0; {
+		from := int8(PopLSB(&bb))
+		fromBB := Bitboard(1) << from
+
+		moves := knightMoves[from] & ^b.Occupied[color]
+		for m := moves; m != 0; {
+			to := int8(PopLSB(&m))
+
+			// make light move
+			captured := b.Occupied[enemyColor] & (Bitboard(1) << to)
+
+			b.Knights[color] &^= fromBB
+			b.Knights[color] |= Bitboard(1) << to
+			b.Occupied[color] &^= fromBB
+			b.Occupied[color] |= Bitboard(1) << to
+			b.Occupied[enemyColor] &^= captured
+
+			if !IsSquareAttacked(int(kingSq), b, enemyColor) {
+				return true
+			}
+
+			// undo
+			b.Knights[color] &^= Bitboard(1) << to
+			b.Knights[color] |= fromBB
+			b.Occupied[color] &^= Bitboard(1) << to
+			b.Occupied[color] |= fromBB
+			b.Occupied[enemyColor] |= captured
+		}
+	}
+	return false
+}
+
+func (b *Board) CanAnyKingMoveSafe(color int8) bool {
+	enemyColor := 1 - color
+	kingBB := b.Kings[color]
+
+	from := int8(bits.TrailingZeros64(uint64(kingBB)))
+	fromBB := Bitboard(1) << from
+
+	moves := kingMoves[from] & ^b.Occupied[color]
+
+	for m := moves; m != 0; {
+		to := int8(PopLSB(&m))
+		toBB := Bitboard(1) << to
+
+		captured := b.Occupied[enemyColor] & toBB
+
+		// move king
+		b.Kings[color] = toBB
+		b.Occupied[color] &^= fromBB
+		b.Occupied[color] |= toBB
+		b.Occupied[enemyColor] &^= captured
+
+		// king must not be attacked on destination square
+		if !IsSquareAttacked(int(to), b, enemyColor) {
+			return true
+		}
+
+		// undo
+		b.Kings[color] = fromBB
+		b.Occupied[color] &^= toBB
+		b.Occupied[color] |= fromBB
+		b.Occupied[enemyColor] |= captured
+	}
+
+	return false
+}
+
+const (
+	CanPawn   uint8 = 1 << iota // 1
+	CanKnight                   // 2
+	CanBishop                   // 4
+	CanRook                     // 8
+	CanQueen                    // 16
+	CanKing                     // 32
+)
+
+func (b *Board) GeAllPiecesThatCanMoveLegallyThisTurn(color int8, piecesToCheck uint8) uint8 {
+	var result uint8 = 0
+
+	if piecesToCheck&CanPawn != 0 && b.CanAnyPawnMoveSafe(color) {
+		result |= CanPawn
+	}
+	if piecesToCheck&CanKnight != 0 && b.CanAnyKnightMoveSafe(color) {
+		result |= CanKnight
+	}
+	if piecesToCheck&CanBishop != 0 && b.CanAnyBishopMoveSafe(color) {
+		result |= CanBishop
+	}
+	if piecesToCheck&CanRook != 0 && b.CanAnyRookMoveSafe(color) {
+		result |= CanRook
+	}
+	if piecesToCheck&CanQueen != 0 && b.CanAnyQueenMoveSafe(color) {
+		result |= CanQueen
+	}
+	if piecesToCheck&CanKing != 0 && b.CanAnyKingMoveSafe(color) {
+		result |= CanKing
+	}
+
+	return result
+}
+
 func (b *Board) GetAllPiecesThatCanMoveThisTurn(color int8, testing bool) []int8 {
 
 	pieces := []int8{}
@@ -514,13 +993,13 @@ func (b *Board) GetAllPiecesThatCanMoveThisTurn(color int8, testing bool) []int8
 			return knightMoves[from] & ^b.Occupied[color]
 		}},
 		{b.Bishops[color], func(from int) Bitboard {
-			return slidingAttacks(from, occupied, directions["bishop"]) & ^b.Occupied[color]
+			return slidingAttacksBishop(from, occupied) & ^b.Occupied[color]
 		}},
 		{b.Rooks[color], func(from int) Bitboard {
-			return slidingAttacks(from, occupied, directions["rook"]) & ^b.Occupied[color]
+			return slidingAttacksRook(from, occupied) & ^b.Occupied[color]
 		}},
 		{b.Queens[color], func(from int) Bitboard {
-			return slidingAttacks(from, occupied, append(directions["rook"], directions["bishop"]...)) & ^b.Occupied[color]
+			return slidingAttacksQueen(from, occupied) & ^b.Occupied[color]
 		}},
 		{b.Kings[color], func(from int) Bitboard {
 			return kingMoves[from] & ^b.Occupied[color]
@@ -608,10 +1087,6 @@ func MakeMove(board *Board, from, to int8, promoteTo int8, testingFuture bool) M
 		rookToBB := Bitboard(1) << rookTo
 
 		if (board.Rooks[color] & rookFromBB) != 0 {
-			// remove and re-add rook in hash
-			newHash ^= zobristPieces[color][Rook][rookFrom]
-			newHash ^= zobristPieces[color][Rook][rookTo]
-
 			// move rook bits
 			board.Rooks[color] &^= rookFromBB
 			board.Rooks[color] |= rookToBB
@@ -623,24 +1098,6 @@ func MakeMove(board *Board, from, to int8, promoteTo int8, testingFuture bool) M
 			log.Printf("Expected rook for castling not found at %s", IndexToSqaureName(rookFrom))
 		}
 	}
-
-	// Remove moving piece from source
-	if movingPiece >= 0 {
-		newHash ^= zobristPieces[color][movingPiece][from]
-	}
-
-	// Remove captured piece if any
-	if capturedPiece >= 0 {
-		newHash ^= zobristPieces[enemyColor][capturedPiece][to]
-	}
-
-	// Remove old en passant
-	if board.EnPassantSquare >= 0 {
-		newHash ^= zobristEnPassant[board.EnPassantSquare]
-	}
-
-	// Remove old castling rights
-	newHash ^= zobristCastling[board.Flags&0x0F]
 
 	// Clear captured piece (only if there's a capture)
 	if capturedPiece >= 0 {
@@ -667,12 +1124,9 @@ func MakeMove(board *Board, from, to int8, promoteTo int8, testingFuture bool) M
 			capSq = to + 8
 		}
 		board.Pawns[enemyColor] &^= Bitboard(1) << capSq
-		// Remove captured pawn from hash
-		newHash ^= zobristPieces[enemyColor][Pawn][capSq]
 	}
 
 	// Move the piece and update hash
-	finalPiece := movingPiece
 	switch movingPiece {
 	case Pawn:
 		board.Pawns[color] &^= fromBB
@@ -681,16 +1135,12 @@ func MakeMove(board *Board, from, to int8, promoteTo int8, testingFuture bool) M
 			switch promoteTo {
 			case 1:
 				board.Rooks[color] |= toBB
-				finalPiece = Rook
 			case 2:
 				board.Knights[color] |= toBB
-				finalPiece = Knight
 			case 3:
 				board.Bishops[color] |= toBB
-				finalPiece = Bishop
 			case 4:
 				board.Queens[color] |= toBB
-				finalPiece = Queen
 			default:
 				board.Pawns[color] |= toBB
 			}
@@ -714,20 +1164,12 @@ func MakeMove(board *Board, from, to int8, promoteTo int8, testingFuture bool) M
 		board.Kings[color] |= toBB
 	}
 
-	// Add piece to destination in hash
-	newHash ^= zobristPieces[color][finalPiece][to]
-
 	// Update en passant square
 	newEnPassant := int8(-1)
 	if movingPiece == Pawn && abs(int(to-from)) == 16 {
 		newEnPassant = (from + to) / 2
 	}
 	board.EnPassantSquare = newEnPassant
-
-	// Add new en passant to hash
-	if newEnPassant >= 0 {
-		newHash ^= zobristEnPassant[newEnPassant]
-	}
 
 	// Update occupancy bitboards
 	board.Occupied[color] &^= fromBB
@@ -737,12 +1179,8 @@ func MakeMove(board *Board, from, to int8, promoteTo int8, testingFuture bool) M
 	// Update castling rights using lookup table
 	board.Flags &= castlingRightsBySquare[from] & castlingRightsBySquare[to]
 
-	// Add new castling rights to hash
-	newHash ^= zobristCastling[board.Flags&0x0F]
-
 	// Toggle side to move
 	board.Flags ^= WhiteToMove
-	newHash ^= zobristSideToMove
 
 	board.UpdateMoveCounters(capturedPiece != -1, movingPiece == Pawn)
 
@@ -809,50 +1247,6 @@ func CanCastle(b *Board, color int8, kingSide bool) bool {
 	return true
 }
 
-func ComputeHash(b *Board) uint64 {
-	var hash uint64 = 0
-
-	// Add pieces
-	for color := 0; color < 2; color++ {
-		for pieceType := 0; pieceType < 6; pieceType++ {
-			var bb Bitboard
-			switch pieceType {
-			case Pawn:
-				bb = b.Pawns[color]
-			case Knight:
-				bb = b.Knights[color]
-			case Bishop:
-				bb = b.Bishops[color]
-			case Rook:
-				bb = b.Rooks[color]
-			case Queen:
-				bb = b.Queens[color]
-			case King:
-				bb = b.Kings[color]
-			}
-			for bb != 0 {
-				sq := PopLSB(&bb)
-				hash ^= zobristPieces[color][pieceType][sq]
-			}
-		}
-	}
-
-	// Add en passant if present
-	if b.EnPassantSquare >= 0 {
-		hash ^= zobristEnPassant[b.EnPassantSquare]
-	}
-
-	// Add side to move
-	if b.Flags&WhiteToMove == 0 { // If it's Black's turn
-		hash ^= zobristSideToMove
-	}
-
-	// Add castling rights
-	hash ^= zobristCastling[b.Flags&0x0F]
-
-	return hash
-}
-
 func (b *Board) ToSquareArray() [64]uint8 {
 	var squares [64]uint8
 
@@ -897,10 +1291,6 @@ func (b *Board) ToSquareArray() [64]uint8 {
 	return squares
 }
 
-type Move struct {
-	From, To, Promotion int8
-}
-
 func (b *Board) UpdateMoveCounters(capturedPiece bool, pawnMove bool) {
 	// Reset halfmove clock on pawn move or capture
 	if pawnMove || capturedPiece {
@@ -922,4 +1312,190 @@ func (b *Board) ToByteArray() []byte {
 		bytes[i] = byte(s)
 	}
 	return bytes
+}
+
+func ParseFEN(fen string) (*Board, error) {
+	parts := strings.Fields(fen)
+	if len(parts) < 4 {
+		return nil, fmt.Errorf("invalid FEN: not enough parts")
+	}
+
+	board := &Board{}
+	board.EnPassantSquare = -1
+
+	// Parse piece placement
+	ranks := strings.Split(parts[0], "/")
+	if len(ranks) != 8 {
+		return nil, fmt.Errorf("invalid FEN: expected 8 ranks")
+	}
+
+	for rankIdx, rankStr := range ranks {
+		file := 0
+		rank := 7 - rankIdx // FEN starts from rank 8
+
+		for _, ch := range rankStr {
+			if ch >= '1' && ch <= '8' {
+				file += int(ch - '0')
+			} else {
+				if file > 7 {
+					return nil, fmt.Errorf("invalid FEN: too many files")
+				}
+
+				square := rank*8 + file
+				bb := Bitboard(1) << square
+
+				color := White
+				if ch >= 'a' && ch <= 'z' {
+					color = Black
+					ch = ch - 32 // Convert to uppercase
+				}
+
+				switch ch {
+				case 'P':
+					board.Pawns[color] |= bb
+				case 'N':
+					board.Knights[color] |= bb
+				case 'B':
+					board.Bishops[color] |= bb
+				case 'R':
+					board.Rooks[color] |= bb
+				case 'Q':
+					board.Queens[color] |= bb
+				case 'K':
+					board.Kings[color] |= bb
+				default:
+					return nil, fmt.Errorf("invalid piece: %c", ch)
+				}
+
+				board.Occupied[color] |= bb
+				file++
+			}
+		}
+	}
+
+	// Parse side to move
+	if parts[1] == "w" {
+		board.Flags |= WhiteToMove
+	}
+
+	// Parse castling rights
+	if parts[2] != "-" {
+		for _, ch := range parts[2] {
+			switch ch {
+			case 'K':
+				board.Flags |= WK
+			case 'Q':
+				board.Flags |= WQ
+			case 'k':
+				board.Flags |= BK
+			case 'q':
+				board.Flags |= BQ
+			}
+		}
+	}
+
+	// Parse en passant square
+	if parts[3] != "-" {
+		file := int(parts[3][0] - 'a')
+		rank := int(parts[3][1] - '1')
+		board.EnPassantSquare = int8(rank*8 + file)
+	}
+	return board, nil
+}
+
+func (b *Board) ToFEN() string {
+	var fen strings.Builder
+
+	// Piece placement
+	for rank := 7; rank >= 0; rank-- {
+		empty := 0
+		for file := 0; file < 8; file++ {
+			square := rank*8 + file
+			bb := Bitboard(1) << square
+
+			piece := ""
+			if b.Pawns[White]&bb != 0 {
+				piece = "P"
+			} else if b.Pawns[Black]&bb != 0 {
+				piece = "p"
+			} else if b.Knights[White]&bb != 0 {
+				piece = "N"
+			} else if b.Knights[Black]&bb != 0 {
+				piece = "n"
+			} else if b.Bishops[White]&bb != 0 {
+				piece = "B"
+			} else if b.Bishops[Black]&bb != 0 {
+				piece = "b"
+			} else if b.Rooks[White]&bb != 0 {
+				piece = "R"
+			} else if b.Rooks[Black]&bb != 0 {
+				piece = "r"
+			} else if b.Queens[White]&bb != 0 {
+				piece = "Q"
+			} else if b.Queens[Black]&bb != 0 {
+				piece = "q"
+			} else if b.Kings[White]&bb != 0 {
+				piece = "K"
+			} else if b.Kings[Black]&bb != 0 {
+				piece = "k"
+			}
+
+			if piece != "" {
+				if empty > 0 {
+					fen.WriteString(fmt.Sprintf("%d", empty))
+					empty = 0
+				}
+				fen.WriteString(piece)
+			} else {
+				empty++
+			}
+		}
+		if empty > 0 {
+			fen.WriteString(fmt.Sprintf("%d", empty))
+		}
+		if rank > 0 {
+			fen.WriteString("/")
+		}
+	}
+
+	// Side to move
+	if b.Flags&WhiteToMove != 0 {
+		fen.WriteString(" w ")
+	} else {
+		fen.WriteString(" b ")
+	}
+
+	// Castling rights
+	castling := ""
+	if b.Flags&WK != 0 {
+		castling += "K"
+	}
+	if b.Flags&WQ != 0 {
+		castling += "Q"
+	}
+	if b.Flags&BK != 0 {
+		castling += "k"
+	}
+	if b.Flags&BQ != 0 {
+		castling += "q"
+	}
+	if castling == "" {
+		castling = "-"
+	}
+	fen.WriteString(castling)
+
+	// En passant
+	if b.EnPassantSquare >= 0 {
+		fen.WriteString(" " + IndexToSqaureName(b.EnPassantSquare))
+	} else {
+		fen.WriteString(" -")
+	}
+
+	// Halfmove clock (for 50-move rule)
+	fen.WriteString(fmt.Sprintf(" %d", b.HalfmoveClock))
+
+	// Fullmove number
+	fen.WriteString(fmt.Sprintf(" %d", b.FullmoveNumber))
+
+	return fen.String()
 }

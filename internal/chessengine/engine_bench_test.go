@@ -55,17 +55,6 @@ func BenchmarkIsSquareAttacked(b *testing.B) {
 	}
 }
 
-// Benchmark sliding attacks (most expensive operation)
-func BenchmarkSlidingAttacks(b *testing.B) {
-	board := NewStartingPosition()
-	occupied := board.Occupied[White] | board.Occupied[Black]
-
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		slidingAttacks(3, occupied, directions["rook"]) // queen on d1
-	}
-}
-
 // Benchmark HasLegalMoves (used for checkmate detection)
 func BenchmarkHasLegalMoves(b *testing.B) {
 	board := NewStartingPosition()
@@ -83,16 +72,6 @@ func BenchmarkGetAllPiecesThatCanMoveThisTurn(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		board.GetAllPiecesThatCanMoveThisTurn(White, false)
-	}
-}
-
-// Benchmark hash computation
-func BenchmarkComputeHash(b *testing.B) {
-	board := NewStartingPosition()
-
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		ComputeHash(&board)
 	}
 }
 
@@ -136,13 +115,22 @@ func BenchmarkPawnMoveGeneration(b *testing.B) {
 	}
 }
 
+func BenchmarkIsInCheck(b *testing.B) {
+	board := NewStartingPosition()
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		board.IsInCheck(White)
+	}
+}
+
 func BenchmarkBishopMoveGeneration(b *testing.B) {
 	board := NewStartingPosition()
 	occupied := board.Occupied[White] | board.Occupied[Black]
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		slidingAttacks(2, occupied, directions["bishop"])
+		slidingAttacksBishop(2, occupied)
 	}
 }
 
@@ -152,18 +140,17 @@ func BenchmarkRookMoveGeneration(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		slidingAttacks(0, occupied, directions["rook"])
+		slidingAttacksRook(0, occupied)
 	}
 }
 
 func BenchmarkQueenMoveGeneration(b *testing.B) {
 	board := NewStartingPosition()
 	occupied := board.Occupied[White] | board.Occupied[Black]
-	allDirs := append(directions["rook"], directions["bishop"]...)
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		slidingAttacks(3, occupied, allDirs)
+		slidingAttacksQueen(3, occupied)
 	}
 }
 
@@ -204,5 +191,77 @@ func BenchmarkComplexPositionLegalMoves(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		board.HasLegalMoves(Black)
+	}
+}
+
+func BenchmarkCanAnyPawnMove_NoPawns(b *testing.B) {
+	board, _ := ParseFEN("rnbqkbnr/8/8/8/8/8/8/RNBQKBNR w KQkq - 0 1")
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		board.CanAnyPawnMove(White)
+	}
+}
+
+func BenchmarkCanAnyPawnMove_BlockedPawns(b *testing.B) {
+	board, _ := ParseFEN("7k/8/pppppppp/nnnnnnnn/NNNNNNNN/PPPPPPPP/8/7K w - - 0 1")
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		board.CanAnyPawnMove(White)
+	}
+}
+
+func BenchmarkCanAnyPawnMove_ComplexPosition(b *testing.B) {
+	board, _ := ParseFEN("r1b3r1/ppppkppP/2n2n2/1B2p3/4P1q1/b4N2/PPPP1P1P/RNB1QR1K w - - 5 11")
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		board.CanAnyPawnMove(White)
+	}
+}
+
+func BenchmarkCanAnyPawnMove_EndgamePosition(b *testing.B) {
+	board, _ := ParseFEN("8/2p5/3p4/KP5r/1R3p1k/8/4P1P1/8 w - - 0 1")
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		board.CanAnyPawnMove(White)
+	}
+}
+
+func BenchmarkCanAnyRookMove_NoRooks(b *testing.B) {
+	board, _ := ParseFEN("1nbqkbn1/pppppppp/8/8/8/8/PPPPPPPP/1NBQKBN1 w - - 0 1")
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		board.CanAnyRookMove(White)
+	}
+}
+
+func BenchmarkCanAnyRookMove_ComplexPosition(b *testing.B) {
+	board, _ := ParseFEN("r1b3r1/ppppkppP/2n2n2/1B2p3/4P1q1/b4N2/PPPP1P1P/RNB1QR1K w - - 5 11")
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		board.CanAnyRookMove(White)
+	}
+}
+
+func BenchmarkCanAnyRookMoveSafe_NoRooks(b *testing.B) {
+	board, _ := ParseFEN("1nbqkbn1/pppppppp/8/8/8/8/PPPPPPPP/1NBQKBN1 w - - 0 1")
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		board.CanAnyRookMoveSafe(White)
+	}
+}
+
+func BenchmarkCanAnyRookMoveSafe_ComplexPosition(b *testing.B) {
+	board, _ := ParseFEN("r1b3r1/ppppkppP/2n2n2/1B2p3/4P1q1/b4N2/PPPP1P1P/RNB1QR1K w - - 5 11")
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		board.CanAnyRookMoveSafe(White)
 	}
 }
