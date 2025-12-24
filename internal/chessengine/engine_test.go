@@ -663,15 +663,19 @@ func SANToMove(board *Board, san string) (Move, error) {
 		from := int8(PopLSB(&bbCopy))
 
 		if piece == Pawn {
+			// Add file check for pawn moves without explicit capture notation
+			fromFile := from % 8
+			toFile := to % 8
+
+			// For non-capture pawn moves, file must match
+			if disFile == -1 && strings.Index(san, "x") == -1 {
+				if fromFile != toFile {
+					continue
+				}
+			}
+
 			// Only consider pawns that can legally move forward
 			if disFile != -1 && from%8 != disFile {
-				continue
-			}
-			targetRank := int8(rank)
-			if color == White && from/8 >= targetRank {
-				continue
-			}
-			if color == Black && from/8 <= targetRank {
 				continue
 			}
 		} else {

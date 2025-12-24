@@ -397,6 +397,62 @@ func (b *Board) IsInCheck(color int8) bool {
 	return IsSquareAttacked(kingSq, b, 1-color)
 }
 
+func IsPseudoLegal(board *Board, from, to int8, piece int, color int8) bool {
+	toBB := Bitboard(1) << to
+	occupied := board.Occupied[White] | board.Occupied[Black]
+
+	// Check if target square contains own piece (illegal for all pieces)
+	if toBB&board.Occupied[color] != 0 {
+		return false
+	}
+
+	switch piece {
+	case Pawn:
+		empty := ^occupied
+		single := SinglePawnPush(Bitboard(1)<<from, empty, color == White)
+		double := DoublePawnPush(Bitboard(1)<<from, empty, color == White)
+		attacks := PawnAttacks(Bitboard(1)<<from, board.Occupied[1-color], color == White)
+
+		// En passant
+		var enPassant Bitboard
+		if board.EnPassantSquare >= 0 {
+			enPassantBB := Bitboard(1) << board.EnPassantSquare
+			enPassant = PawnAttacks(Bitboard(1)<<from, enPassantBB, color == White)
+		}
+
+		return (single|double|attacks|enPassant)&toBB != 0
+
+	case Knight:
+		return knightMoves[from]&toBB != 0
+
+	case Bishop:
+		attacks := slidingAttacks(int(from), occupied, directions["bishop"])
+		return attacks&toBB != 0
+
+	case Rook:
+		attacks := slidingAttacks(int(from), occupied, directions["rook"])
+		return attacks&toBB != 0
+
+	case Queen:
+		allDirs := append(directions["rook"], directions["bishop"]...)
+		attacks := slidingAttacks(int(from), occupied, allDirs)
+		return attacks&toBB != 0
+
+	case King:
+		// Check normal king moves
+		if kingMoves[from]&toBB != 0 {
+			return true
+		}
+		// Check castling
+		if abs(int(to-from)) == 2 {
+			return CanCastle(board, color, to > from)
+		}
+		return false
+	}
+
+	return false
+}
+
 func IsMoveLegal(board *Board, from, to, promoteTo int8) bool {
 	color := Black
 	if board.Flags&WhiteToMove != 0 {
@@ -417,6 +473,11 @@ func IsMoveLegal(board *Board, from, to, promoteTo int8) bool {
 		if color == Black && direction >= 0 {
 			return false // Black pawns must move backward (negative direction)
 		}
+	}
+
+	// NEW: Check if the move is pseudo-legal for this piece type
+	if !IsPseudoLegal(board, from, to, piece, int8(color)) {
+		return false
 	}
 
 	temp := *board
