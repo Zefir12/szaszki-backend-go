@@ -38,9 +38,17 @@ test:
 	gotestsum --format testname ./internal/chessengine ./internal
 
 bench:
-	go test ./internal/chessengine -run=^$$ -bench=. -benchmem > benchmarkresults/engine-benchmark-v1.0.5.txt
+	go test ./internal/chessengine -run=^$$ -bench=. -benchmem -count=6 > benchmarkresults/engine-benchmark-v1.0.5.txt
 	benchstat benchmarkresults/engine-benchmark-v1.0.4.txt benchmarkresults/engine-benchmark-v1.0.5.txt
 
+bench-full:
+	go test ./internal/chessengine -run=^$$ -bench=. -benchmem -count=6 > benchmarkresults/engine-benchmark-full-v1.0.5.txt
+	benchstat benchmarkresults/engine-benchmark-full-v1.0.4.txt benchmarkresults/engine-benchmark-full-v1.0.5.txt
+
 benchsession:
-	go test ./internal -run=^$$ -bench=. -benchmem > benchmarkresults/session-benchmark-v1.0.5.txt
+	go test ./internal -run=^$$ -bench=. -benchmem -count=6 > benchmarkresults/session-benchmark-v1.0.5.txt
 	benchstat benchmarkresults/session-benchmark-v1.0.4.txt benchmarkresults/session-benchmark-v1.0.5.txt
+
+benchsession-full:
+	go test ./internal -run=^$$ -bench=. -benchmem -count=6 > benchmarkresults/session-benchmark-full-v1.0.5.txt
+	benchstat benchmarkresults/session-benchmark-full-v1.0.4.txt benchmarkresults/session-benchmark-full-v1.0.5.txt
