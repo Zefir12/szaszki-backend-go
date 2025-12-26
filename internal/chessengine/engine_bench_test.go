@@ -55,26 +55,6 @@ func BenchmarkIsSquareAttacked(b *testing.B) {
 	}
 }
 
-// Benchmark HasLegalMoves (used for checkmate detection)
-func BenchmarkHasLegalMoves(b *testing.B) {
-	board := NewStartingPosition()
-
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		board.HasLegalMoves(White)
-	}
-}
-
-// Benchmark GetAllPiecesThatCanMoveThisTurn
-func BenchmarkGetAllPiecesThatCanMoveThisTurn(b *testing.B) {
-	board := NewStartingPosition()
-
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		board.GetAllPiecesThatCanMoveThisTurn(White, false)
-	}
-}
-
 // Benchmark full game replay
 func BenchmarkFullGameReplay(b *testing.B) {
 	pgn := `1. e4 e5 2. d4 exd4 3. Qxd4 Nc6 4. Qd1 Nf6 5. Nc3 Bb4 6. Bd3 O-O 7. Bd2 Re8 8.
@@ -190,7 +170,7 @@ func BenchmarkComplexPositionLegalMoves(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		board.HasLegalMoves(Black)
+		board.HasAnyLegalMove(Black)
 	}
 }
 

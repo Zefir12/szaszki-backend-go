@@ -469,9 +469,7 @@ func (g *GameSession) shouldEndGame() bool {
 	// }
 
 	inCheck := g.Board.IsInCheck(int8(g.SideToMove))
-	hasLegalMoves := g.Board.HasLegalMoves(int8(g.SideToMove))
 
-	// Get current player's cards
 	var currentCards []int8
 	if g.SideToMove == chess.White {
 		currentCards = g.WhiteCards
@@ -481,36 +479,25 @@ func (g *GameSession) shouldEndGame() bool {
 
 	hasPlayableMove := g.hasPlayableMove(currentCards)
 
-	if inCheck && !hasLegalMoves {
-		log.Println("checkmate")
-		return true
-	}
-
-	// Stalemate: not in check but no legal moves
-	if !inCheck && !hasLegalMoves {
-		log.Println("stalemate")
-		return true
-	}
-
 	if !hasPlayableMove {
-		if g.SideToMove == 0 {
-			g.WhiteHp -= 1
+		if g.Board.HasAnyLegalMove(int8(g.SideToMove)) {
+			if g.SideToMove == 0 {
+				g.WhiteHp -= 1
+			} else {
+				g.BlackHp -= 1
+			}
+			g.BroadcastHp()
 		} else {
-			g.BlackHp -= 1
+			if inCheck {
+				log.Println("checkmate")
+				return true
+			} else {
+				log.Println("stalemate")
+				return true
+			}
 		}
-		g.BroadcastHp()
 	}
 
-	// Check if players are still connected
-	// connectedPlayers := 0
-	// for _, player := range g.Players {
-	// 	if player.ConnCount() > 0 && !player.IsDisconnected() {
-	// 		connectedPlayers++
-	// 	}
-	// }
-
-	// End game if less than 2 players connected
-	//return connectedPlayers < 2
 	return false
 }
 

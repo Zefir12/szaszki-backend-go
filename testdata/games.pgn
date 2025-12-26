@@ -126,3 +126,126 @@ Nf5 35. Qf2 Nd4 36. Rd1 Qf8 37. g3 Qa8 38. Rxc5 Nf3+ 39. Kf1 Ng5 40. Rcd5 Ne4
 Nf6 54. Rd1 g4 55. Rxa6 Kh6 56. Re6 Kg5 57. a4 g3 58. a5 h4 59. a6 h3 60. Rb6 h2
 61. Rb7 Rf8 62. a7 g2 63. Rb8 Rxb8 64. axb8=Q g1=Q 65. Rxg1+ hxg1=Q 66. Qd6 Qd4+
 67. Qxd4 Kxf5 68. Qxf6+ Kxf6 69. Kc3 Ke5 1/2-1/2
+
+# Game 4
+[Event "Live Chess"]
+[Site "Chess.com"]
+[Date "2025.09.05"]
+[Round "-"]
+[White "Artem-chess2"]
+[Black "AlexKhripachenko"]
+[Result "0-1"]
+[CurrentPosition "8/8/8/8/8/ppk5/8/2K1r3 w - - 16 79"]
+[Timezone "UTC"]
+[ECO "D30"]
+[ECOUrl "https://www.chess.com/openings/Queens-Gambit-Declined-3.Nf3-Nf6"]
+[UTCDate "2025.09.05"]
+[UTCTime "13:01:00"]
+[WhiteElo "2917"]
+[BlackElo "2997"]
+[TimeControl "180"]
+[Termination "AlexKhripachenko won by checkmate"]
+[StartTime "13:01:00"]
+[EndDate "2025.09.05"]
+[EndTime "13:07:12"]
+[Link "https://www.chess.com/analysis/game/live/142756375880/analysis"]
+[WhiteUrl "https://images.chesscomfiles.com/uploads/v1/user/389412525.6ef3a6ce.50x50o.4659095050b6.jpg"]
+[WhiteCountry "81"]
+[WhiteTitle ""]
+[BlackUrl "https://images.chesscomfiles.com/uploads/v1/user/158633967.1ea85782.50x50o.73559b0995dc.jpeg"]
+[BlackCountry "116"]
+[BlackTitle "IM"]
+
+1. d4 Nf6 2. c4 e6 3. Nf3 d5 4. g3 dxc4 5. Bg2 Bb4+ 6. Bd2 c5 7. O-O O-O 8. Qc2
+Bxd2 9. Nbxd2 cxd4 10. Nxc4 d3 11. Qxd3 Qxd3 12. exd3 Rd8 13. Nfe5 Nd5 14. Na5
+f6 15. Nec4 b6 16. Nb3 Nc6 17. Rfe1 Kf7 18. a3 Ba6 19. Rac1 Rac8 20. Bh3 f5 21.
+Re2 Kf6 22. Rce1 Nc7 23. Re3 Nd4 24. Nxd4 Rxd4 25. Ne5 Rd6 26. Bg2 Nd5 27. R3e2
+g5 28. Nc4 Bxc4 29. dxc4 Rxc4 30. Bxd5 exd5 31. Re8 Re4 32. Rf8+ Kg6 33. Rc1 d4
+34. Kf1 d3 35. Rd1 Re2 36. b4 Ra2 37. Re8 Rxa3 38. Re3 Rb3 39. h4 h6 40. hxg5
+hxg5 41. f4 Rxb4 42. Rdxd3 Rxd3 43. Rxd3 gxf4 44. gxf4 Rxf4+ 45. Kg2 Ra4 46. Rd7
+Kg5 47. Kf2 Kf4 48. Ke2 b5 49. Rh7 Ra2+ 50. Kd3 Ra3+ 51. Ke2 a5 52. Rh4+ Ke5 53.
+Rh8 b4 54. Rb8 b3 55. Rb5+ Kf4 56. Kd2 a4 57. Rb4+ Kf3 58. Kc3 f4 59. Kb2 Ra2+
+60. Kb1 Kg3 61. Rb8 f3 62. Rg8+ Kh3 63. Rh8+ Kg2 64. Rg8+ Kf1 65. Rf8 f2 66. Re8
+Re2 67. Rh8 Ke1 68. Rh1+ f1=Q 69. Rxf1+ Kxf1 70. Ka1 a3 71. Kb1 Ke1 72. Ka1 Kd1
+73. Kb1 Ke1 74. Ka1 Kf2 75. Kb1 Ke3 76. Kc1 Kd4 77. Kb1 Kc3 78. Kc1 Re1# 0-1
+
+# Game 5
+[Event "Live Chess"]
+[Site "Chess.com"]
+[Date "2025.09.05"]
+[Round "-"]
+[White "AlexKhripachenko"]
+[Black "Artem-chess2"]
+[Result "1-0"]
+[CurrentPosition "6Q1/7R/3p4/3P3k/3NPP2/4K3/8/8 b - - 2 61"]
+[Timezone "UTC"]
+[ECO "B00"]
+[ECOUrl "https://www.chess.com/openings/Kings-Pawn-Opening-Ware-Defense-2.d4"]
+[UTCDate "2025.09.05"]
+[UTCTime "13:07:16"]
+[WhiteElo "3003"]
+[BlackElo "2911"]
+[TimeControl "180"]
+[Termination "AlexKhripachenko won by checkmate"]
+[StartTime "13:07:16"]
+[EndDate "2025.09.05"]
+[EndTime "13:10:40"]
+[Link "https://www.chess.com/analysis/game/live/142756601684/analysis"]
+[WhiteUrl "https://images.chesscomfiles.com/uploads/v1/user/158633967.1ea85782.50x50o.73559b0995dc.jpeg"]
+[WhiteCountry "116"]
+[WhiteTitle "IM"]
+[BlackUrl "https://images.chesscomfiles.com/uploads/v1/user/389412525.6ef3a6ce.50x50o.4659095050b6.jpg"]
+[BlackCountry "81"]
+[BlackTitle ""]
+
+1. e4 a5 2. d4 Ra6 3. Bxa6 Nxa6 4. Nf3 b6 5. O-O Bb7 6. Re1 Qa8 7. Nc3 g6 8. Bg5
+Bg7 9. Qd2 h6 10. Bh4 d6 11. d5 g5 12. Bg3 f6 13. Nd4 Bc8 14. Nf5 Bf8 15. Nb5
+Qb7 16. c4 h5 17. h3 Nh6 18. Qd4 Nf7 19. b3 Nc5 20. Qc3 h4 21. Bh2 Nd7 22. a3
+Nde5 23. b4 a4 24. f3 c5 25. bxc5 bxc5 26. Rab1 Qd7 27. Qa5 Bh6 28. Nc7+ Kf8 29.
+Ne6+ Kg8 30. Rb8 Kh7 31. Bxe5 Nxe5 32. Ra8 Nxc4 33. Qxa4 Nb6 34. Qxd7 Bxd7 35.
+Rxh8+ Kxh8 36. Nxh6 Nc4 37. Nf5 Nxa3 38. Nxe7 c4 39. Nf5 c3 40. Rc1 c2 41. Ned4
+Ba4 42. Ne3 Kg7 43. Ndxc2 Bxc2 44. Nxc2 Nb5 45. Kf2 f5 46. Ke3 Kf6 47. Nd4 Na7
+48. Nxf5 Ke5 49. Nd4 g4 50. f4+ Kf6 51. hxg4 h3 52. gxh3 Kg6 53. h4 Kf6 54. h5
+Kg7 55. Rc7+ Kh6 56. g5+ Kxh5 57. Rxa7 Kg4 58. g6 Kh5 59. g7 Kg4 60. g8=Q+ Kh5
+61. Rh7# 1-0
+
+# Game 6
+[Event "Live Chess"]
+[Site "Chess.com"]
+[Date "2025.09.09"]
+[Round "-"]
+[White "only_strong_moves"]
+[Black "AlexKhripachenko"]
+[Result "0-1"]
+[CurrentPosition "8/8/3q3P/8/1k6/6Q1/6PK/4q3 w - - 0 67"]
+[Timezone "UTC"]
+[ECO "C45"]
+[ECOUrl "https://www.chess.com/openings/Scotch-Game-Classical-Potter-Variation-5...Bb6-6.Qe2"]
+[UTCDate "2025.09.09"]
+[UTCTime "18:17:04"]
+[WhiteElo "2898"]
+[BlackElo "3009"]
+[TimeControl "180"]
+[Termination "AlexKhripachenko won on time"]
+[StartTime "18:17:04"]
+[EndDate "2025.09.09"]
+[EndTime "18:23:23"]
+[Link "https://www.chess.com/analysis/game/live/142926290362/analysis"]
+[WhiteUrl "https://images.chesscomfiles.com/uploads/v1/user/27547574.8906d1fa.50x50o.e46b25b1d036.jpg"]
+[WhiteCountry "141"]
+[WhiteTitle "FM"]
+[BlackUrl "https://images.chesscomfiles.com/uploads/v1/user/158633967.1ea85782.50x50o.73559b0995dc.jpeg"]
+[BlackCountry "116"]
+[BlackTitle "IM"]
+
+1. e4 e5 2. Nf3 Nc6 3. d4 exd4 4. Nxd4 Bc5 5. Nb3 Bb6 6. Qe2 d6 7. Nc3 a5 8. a3
+a4 9. Nd2 Nd4 10. Qd1 Nf6 11. Nc4 Bc5 12. Bg5 h6 13. Bh4 O-O 14. Bd3 Re8 15. O-O
+c6 16. Re1 b5 17. Ne3 Ne6 18. Qf3 Ng5 19. Qd1 Qb6 20. Bxg5 hxg5 21. Kh1 Be6 22.
+Qf3 b4 23. axb4 Qxb4 24. Ned1 Bg4 25. Qg3 Bxd1 26. Raxd1 Qxb2 27. e5 Rxe5 28.
+Rxe5 dxe5 29. Ne4 Nxe4 30. Bxe4 a3 31. Qh3 g6 32. Bxg6 fxg6 33. Qe6+ Kh8 34.
+Qf6+ Kg8 35. Qxg6+ Kh8 36. Qh6+ Kg8 37. Qxg5+ Kh8 38. Qh6+ Kg8 39. Qxc6 Rf8 40.
+Qd5+ Rf7 41. Qxc5 a2 42. Qa5 Qxc2 43. Rg1 Rxf2 44. h3 Qb2 45. Qd8+ Kf7 46. Qd7+
+Kf6 47. Qd8+ Kf5 48. Qf8+ Ke4 49. Qa8+ Ke3 50. Qa7+ Ke2 51. Qa6+ Kd2 52. Qa5+
+Kc2 53. Qc5+ Qc3 54. Qxf2+ Kb3 55. Qb6+ Ka3 56. Qa7+ Kb2 57. Qf2+ Ka3 58. Re1
+a1=Q 59. Rxa1+ Qxa1+ 60. Kh2 e4 61. Qg3+ Kb4 62. h4 Qd4 63. h5 e3 64. Qh3 e2 65.
+h6 Qd6+ 66. Qg3 e1=Q 0-1

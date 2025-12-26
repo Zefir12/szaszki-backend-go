@@ -55,7 +55,7 @@ func kingInCheckmate(b *Board, color int8) bool {
 		return false
 	}
 	// if no legal move exists → mate
-	return !b.HasLegalMoves(color)
+	return !b.HasAnyLegalMove(color)
 }
 
 func (b *Board) FindPieces(piece, color int8) []int8 {
