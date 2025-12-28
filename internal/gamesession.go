@@ -23,9 +23,7 @@ type GameSession struct {
 	Players      []*Client
 	Mode         uint16
 	Board        chess.Board
-	BoardHistory []chess.Board
 	MoveHistory  []chess.Move
-	SideToMove   int // 0 = White, 1 = Black
 	MoveChannel  chan PlayerMove
 	GameActive   bool
 	WhiteTime    time.Duration
@@ -73,7 +71,7 @@ func (g *GameSession) runClock() {
 		now := time.Now()
 		elapsed := now.Sub(g.LastMoveTime)
 
-		if g.SideToMove == chess.White {
+		if g.Board.SideToMove() == chess.White {
 			g.WhiteTime -= elapsed
 			if g.WhiteTime <= 0 {
 				g.WhiteTime = 0
@@ -156,7 +154,7 @@ func (g *GameSession) Run() {
 	for {
 		// wait for move from current player
 		move := <-g.MoveChannel
-		logger.Log.Info().Uint32("gameId", g.ID).Int("from", int(move.From)).Int("to", int(move.To)).Int("promoteTo", int(move.PromoteTo)).Uint32("playerId", move.Player.UserID).Msg("Received move")
+		//logger.Log.Info().Uint32("gameId", g.ID).Int("from", int(move.From)).Int("to", int(move.To)).Int("promoteTo", int(move.PromoteTo)).Uint32("playerId", move.Player.UserID).Msg("Received move")
 
 		//Confirm move came from the correct player
 		// if g.Players[g.SideToMove] == move.Player {
@@ -174,12 +172,10 @@ func (g *GameSession) Run() {
 		// }
 
 		removedCardIndexes := g.CardLogicRemoval(move.From, move.CardsToReroll, cfg)
-		fmt.Printf("tes56: %+v\n", removedCardIndexes)
 		madeMove := chess.MakeMove(&g.Board, move.From, move.To, move.PromoteTo, false)
 		g.MoveHistory = append(g.MoveHistory, madeMove)
-		g.BoardHistory = append(g.BoardHistory, g.Board)
 
-		g.CardLogicAdding(move.From, removedCardIndexes, cfg)
+		g.CardLogicAdding(removedCardIndexes, cfg)
 
 		g.BroadcastCards()
 
@@ -189,14 +185,12 @@ func (g *GameSession) Run() {
 
 		g.LastMoveTime = time.Now()
 
-		// TODO: check for game end (checkmate, stalemate, etc)
-		if g.shouldEndGame() {
+		g.Board.FlipSideToMove()
+
+		if g.shouldEndGame(g.Board.SideToMove()) {
 			g.saveGame()
 			break
 		}
-
-		// update side to move
-		g.SideToMove = 1 - g.SideToMove
 	}
 }
 
@@ -264,7 +258,7 @@ func (g *GameSession) BroadcastMove(from, to, promote int8, cfg *config.ConfigVa
 func (g *GameSession) BroadcastTime() {
 	payload, err := bh.Pack(
 		[]bh.FieldType{bh.Int32, bh.Int32, bh.Uint32, bh.Int8},
-		[]any{int32(g.WhiteTime.Milliseconds()), int32(g.BlackTime.Milliseconds()), g.ID, int8(g.SideToMove)},
+		[]any{int32(g.WhiteTime.Milliseconds()), int32(g.BlackTime.Milliseconds()), g.ID, g.Board.SideToMove()},
 	)
 	if err != nil {
 		logger.Log.Warn().Err(err).Uint32("gameId", g.ID).Msg("couldnt pack time status")
@@ -277,25 +271,14 @@ func (g *GameSession) BroadcastTime() {
 }
 
 func (g *GameSession) CardLogicRemoval(from int8, cardsToReroll [5]int8, cfg *config.ConfigValues) []int {
-	if cfg.SHOW_EXTRA_LOGS {
-		println("=== CardLogic Triggered ===")
-		println("Side to move:", g.SideToMove)
-		println("Piece moved from square:", from)
-	}
-
 	var removedCardIndexes []int
 	cards := &g.WhiteCards
 
-	if g.SideToMove == chess.Black {
+	if g.Board.SideToMove() == chess.Black {
 		cards = &g.BlackCards
 	}
 
-	piece := g.Board.GetPieceType(from, int8(g.SideToMove))
-
-	if cfg.SHOW_EXTRA_LOGS {
-		println("Played piece type:", piece)
-		println("Cards BEFORE:", chess.CardListToString(*cards))
-	}
+	piece := g.Board.GetPieceType(from, g.Board.SideToMove())
 
 	// First pass: mark cards for reroll
 	for i := 0; i < len(*cards) && i < len(cardsToReroll); i++ {
@@ -309,74 +292,30 @@ func (g *GameSession) CardLogicRemoval(from int8, cardsToReroll [5]int8, cfg *co
 		if cardsToReroll[i] == 1 {
 			continue // Already marked
 		}
-
 		enginePiece := chess.CardToEnginePiece(c)
-		if cfg.SHOW_EXTRA_LOGS {
-			println("Checking card:", chess.CardName(c), "-> enginePiece:", enginePiece)
-		}
-
 		if enginePiece == piece {
-			if cfg.SHOW_EXTRA_LOGS {
-				println("MATCH FOUND. Removing card:", chess.CardName(c))
-			}
 			removedCardIndexes = append(removedCardIndexes, i)
 			break
 		}
 	}
-
-	if cfg.SHOW_EXTRA_LOGS {
-		println("Cards AFTER removal:", chess.CardListToString(*cards))
-	}
-
 	return removedCardIndexes
 }
 
-func (g *GameSession) CardLogicAdding(from int8, removedCardIndexes []int, cfg *config.ConfigValues) {
-	if cfg.SHOW_EXTRA_LOGS {
-		println("=== CardLogic ADDING ===")
-		println("SideToMove:", g.SideToMove)
-		fmt.Printf("Removed indexes: %v\n", removedCardIndexes)
-	}
-
-	if g.SideToMove == chess.White {
-
+func (g *GameSession) CardLogicAdding(removedCardIndexes []int, cfg *config.ConfigValues) {
+	if g.Board.SideToMove() == chess.White {
 		for _, idx := range removedCardIndexes {
-			newCard := chess.GetRandomValidCard(&g.Board, chess.Black)
-
-			if cfg.SHOW_EXTRA_LOGS {
-				println("New card for White:", chess.CardName(newCard))
-			}
-
+			newCard := chess.GetRandomValidCard(&g.Board, chess.White)
 			if idx >= 0 && idx < len(g.WhiteCards) {
 				g.WhiteCards[idx] = newCard
 			}
 		}
-
-		if cfg.SHOW_EXTRA_LOGS {
-			println("White cards FINAL:", chess.CardListToString(g.WhiteCards))
-		}
-
-	} else { // Black
-
+	} else {
 		for _, idx := range removedCardIndexes {
-			newCard := chess.GetRandomValidCard(&g.Board, chess.White)
-
-			if cfg.SHOW_EXTRA_LOGS {
-				println("New card for Black:", chess.CardName(newCard))
-			}
-
+			newCard := chess.GetRandomValidCard(&g.Board, chess.Black)
 			if idx >= 0 && idx < len(g.BlackCards) {
 				g.BlackCards[idx] = newCard
 			}
 		}
-
-		if cfg.SHOW_EXTRA_LOGS {
-			println("Black cards FINAL:", chess.CardListToString(g.BlackCards))
-		}
-	}
-
-	if cfg.SHOW_EXTRA_LOGS {
-		println("=== END CardLogic ===")
 	}
 }
 
@@ -446,7 +385,7 @@ func (g *GameSession) handleTimeLoss(side int) {
 	//g.saveGame()
 }
 
-func (g *GameSession) hasPlayableMove(cards []int8) bool {
+func (g *GameSession) hasPlayableMove(cards []int8, color int8) bool {
 	var cardPieces uint8 = 0
 	for _, card := range cards {
 		pieceType := chess.CardToEnginePiece(card)
@@ -456,10 +395,10 @@ func (g *GameSession) hasPlayableMove(cards []int8) bool {
 		cardPieces |= 1 << pieceType
 	}
 
-	return g.Board.GeAllPiecesThatCanMoveLegallyThisTurn(int8(g.SideToMove), cardPieces) > 0
+	return g.Board.GeAllPiecesThatCanMoveLegallyThisTurn(color, cardPieces) > 0
 }
 
-func (g *GameSession) shouldEndGame() bool {
+func (g *GameSession) shouldEndGame(color int8) bool {
 	g.Mu.RLock()
 	defer g.Mu.RUnlock()
 
@@ -468,20 +407,20 @@ func (g *GameSession) shouldEndGame() bool {
 	// 	return true
 	// }
 
-	inCheck := g.Board.IsInCheck(int8(g.SideToMove))
+	inCheck := g.Board.IsInCheck(color)
 
 	var currentCards []int8
-	if g.SideToMove == chess.White {
+	if color == chess.White {
 		currentCards = g.WhiteCards
 	} else {
 		currentCards = g.BlackCards
 	}
 
-	hasPlayableMove := g.hasPlayableMove(currentCards)
+	hasPlayableMove := g.hasPlayableMove(currentCards, color)
 
 	if !hasPlayableMove {
-		if g.Board.HasAnyLegalMove(int8(g.SideToMove)) {
-			if g.SideToMove == 0 {
+		if g.Board.HasAnyLegalMove(color) {
+			if color != 0 {
 				g.WhiteHp -= 1
 			} else {
 				g.BlackHp -= 1
@@ -502,12 +441,6 @@ func (g *GameSession) shouldEndGame() bool {
 }
 
 func (g *GameSession) saveGame() {
-	// Convert board history to byte slices
-	var boardHistoryBytes [][]byte
-	for _, board := range g.BoardHistory {
-		boardHistoryBytes = append(boardHistoryBytes, board.ToByteArray())
-	}
-
 	// Convert move history to protobuf format
 	var moveHistoryProto []*pb.Move
 	for _, move := range g.MoveHistory {
@@ -515,11 +448,10 @@ func (g *GameSession) saveGame() {
 	}
 
 	gameState := &pb.GameState{
-		BoardHistory: boardHistoryBytes,
-		MoveHistory:  moveHistoryProto,
+		MoveHistory: moveHistoryProto,
 	}
 
-	pgn := g.Board.ToPGN(g.MoveHistory)
+	pgn := ""
 
 	_, err := grpc.SaveGame(g.ID, g.Players[0].UserID, g.Players[1].UserID, gameState, pgn)
 	if err != nil {

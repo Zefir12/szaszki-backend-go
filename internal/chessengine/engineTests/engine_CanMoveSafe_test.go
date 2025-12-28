@@ -29,6 +29,38 @@ func TestCanAnyRookMoveSafe_ClearPath(t *testing.T) {
 	}
 }
 
+func TestCanAnyBishopMoveSafe_ClearPath(t *testing.T) {
+	// White rook on a1 with empty file
+	startingFen := "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1"
+
+	board, _ := chess.ParseFEN(startingFen)
+	if !board.CanAnyBishopMoveSafe(chess.White) {
+		t.Error("White rook on a1 should be able to move freely")
+	}
+	if startingFen != board.ToFEN() {
+		t.Error("Board changed after check!")
+	}
+
+	// Black rook on h8 with empty file
+	startingFen = "7r/5k2/8/8/8/4K3/8/8 b - - 0 1"
+	board, _ = chess.ParseFEN(startingFen)
+	if !board.CanAnyRookMoveSafe(chess.Black) {
+		t.Error("Black rook on h8 should be able to move freely")
+	}
+	if startingFen != board.ToFEN() {
+		t.Error("Board changed after check!")
+	}
+}
+
+func TestCanAnyPawnMoveSafe_KingUnderAttack(t *testing.T) {
+	// All white and black pawns blocked
+	board, _ := chess.ParseFEN("rnbqkbnr/pppppppp/5N2/8/8/8/PPPPPPPP/RNBQKB1R b KQkq - 0 2")
+
+	if !board.CanAnyPawnMoveSafe(chess.Black) {
+		t.Error("White pawns should be able to capture")
+	}
+}
+
 func TestCanAnyRookMoveSafe_BlockedRooks(t *testing.T) {
 	// Rooks completely blocked by own pieces
 	startingFen := "RRRRRRKR/PPPPPPPP/8/8/8/8/pppppppp/rrrrrrkr w - - 0 1"

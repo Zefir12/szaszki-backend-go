@@ -83,8 +83,7 @@ func (x *Move) GetPromotion() int32 {
 
 type GameState struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	BoardHistory  [][]byte               `protobuf:"bytes,1,rep,name=board_history,json=boardHistory,proto3" json:"board_history,omitempty"`
-	MoveHistory   []*Move                `protobuf:"bytes,2,rep,name=move_history,json=moveHistory,proto3" json:"move_history,omitempty"`
+	MoveHistory   []*Move                `protobuf:"bytes,1,rep,name=move_history,json=moveHistory,proto3" json:"move_history,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -117,13 +116,6 @@ func (x *GameState) ProtoReflect() protoreflect.Message {
 // Deprecated: Use GameState.ProtoReflect.Descriptor instead.
 func (*GameState) Descriptor() ([]byte, []int) {
 	return file_proto_game_proto_rawDescGZIP(), []int{1}
-}
-
-func (x *GameState) GetBoardHistory() [][]byte {
-	if x != nil {
-		return x.BoardHistory
-	}
-	return nil
 }
 
 func (x *GameState) GetMoveHistory() []*Move {
@@ -269,10 +261,9 @@ const file_proto_game_proto_rawDesc = "" +
 	"\x04Move\x12\x12\n" +
 	"\x04from\x18\x01 \x01(\x05R\x04from\x12\x0e\n" +
 	"\x02to\x18\x02 \x01(\x05R\x02to\x12\x1c\n" +
-	"\tpromotion\x18\x03 \x01(\x05R\tpromotion\"_\n" +
-	"\tGameState\x12#\n" +
-	"\rboard_history\x18\x01 \x03(\fR\fboardHistory\x12-\n" +
-	"\fmove_history\x18\x02 \x03(\v2\n" +
+	"\tpromotion\x18\x03 \x01(\x05R\tpromotion\":\n" +
+	"\tGameState\x12-\n" +
+	"\fmove_history\x18\x01 \x03(\v2\n" +
 	".game.MoveR\vmoveHistory\"\xb4\x01\n" +
 	"\x0fSaveGameRequest\x12\x17\n" +
 	"\agame_id\x18\x01 \x01(\rR\x06gameId\x12\"\n" +

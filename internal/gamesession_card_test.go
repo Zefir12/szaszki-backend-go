@@ -38,9 +38,7 @@ func createTestGameSession() *GameSession {
 		Players:      []*Client{{UserID: 1}, {UserID: 2}},
 		Mode:         1,
 		Board:        chess.NewStartingPosition(),
-		BoardHistory: []chess.Board{},
 		MoveHistory:  []chess.Move{},
-		SideToMove:   chess.White,
 		MoveChannel:  make(chan PlayerMove, 10),
 		GameActive:   true,
 		WhiteTime:    10 * time.Minute,
@@ -171,13 +169,13 @@ func TestHasPlayableMove_WithMatchingCards(t *testing.T) {
 
 	g := createTestGameSession()
 	g.Board = chess.NewStartingPosition()
-	g.SideToMove = chess.White
+	g.Board.SetSideToMove(chess.White)
 
 	// White can move pawns and knights at start
 	// Give white some pawn cards
 	cards := []int8{6, 6, 5, 4, 3}
 
-	result := g.hasPlayableMove(cards)
+	result := g.hasPlayableMove(cards, g.Board.SideToMove())
 
 	if !result {
 		t.Error("Expected hasPlayableMove to return true with pawn cards")
@@ -189,12 +187,12 @@ func TestHasPlayableMove_NoMatchingCards(t *testing.T) {
 
 	g := createTestGameSession()
 	g.Board = chess.NewStartingPosition()
-	g.SideToMove = chess.White
+	g.Board.SetSideToMove(chess.White)
 
 	// White can only move pawns and knights, but give only other cards
 	cards := []int8{4, 4, 3, 3, 2}
 
-	result := g.hasPlayableMove(cards)
+	result := g.hasPlayableMove(cards, g.Board.SideToMove())
 
 	if result {
 		t.Error("Expected hasPlayableMove to return false without matching cards")
@@ -208,11 +206,11 @@ func TestHasPlayableMove_Stalemate(t *testing.T) {
 	// Position where king has no legal moves
 	board, _ := chess.ParseFEN("7k/5Q2/6K1/8/8/8/8/8 b - - 0 1")
 	g.Board = *board
-	g.SideToMove = chess.Black
+	g.Board.SetSideToMove(chess.Black)
 
 	cards := []int8{1, 1, 1, 1, 1} // All king cards
 
-	result := g.hasPlayableMove(cards)
+	result := g.hasPlayableMove(cards, g.Board.SideToMove())
 
 	if result {
 		t.Error("Expected hasPlayableMove to return false in stalemate")
@@ -223,7 +221,7 @@ func TestFullCardCycle(t *testing.T) {
 	cfg := setupTestConfig()
 
 	g := createTestGameSession()
-	g.SideToMove = chess.White
+	g.Board.SetSideToMove(chess.White)
 	g.BlackCards = []int8{6, 6, 5, 4, 3}
 
 	initialCardCount := len(g.BlackCards)
@@ -232,7 +230,7 @@ func TestFullCardCycle(t *testing.T) {
 	cardsToReroll := [5]int8{0, 0, 1, 0, 0} // Reroll one card
 
 	removedIndexes := g.CardLogicRemoval(12, cardsToReroll, cfg)
-	g.CardLogicAdding(12, removedIndexes, cfg)
+	g.CardLogicAdding(removedIndexes, cfg)
 
 	// Should still have 5 cards
 	if len(g.BlackCards) != initialCardCount {
@@ -255,7 +253,7 @@ func BenchmarkHasPlayableMove(b *testing.B) {
 	cards := []int8{6, 6, 5, 4, 3}
 
 	for b.Loop() {
-		g.hasPlayableMove(cards)
+		g.hasPlayableMove(cards, g.Board.SideToMove())
 	}
 }
 
@@ -266,6 +264,6 @@ func BenchmarkFullCardCycle(b *testing.B) {
 
 	for b.Loop() {
 		removedIndexes := g.CardLogicRemoval(12, cardsToReroll, cfg)
-		g.CardLogicAdding(12, removedIndexes, cfg)
+		g.CardLogicAdding(removedIndexes, cfg)
 	}
 }

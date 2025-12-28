@@ -11,8 +11,7 @@ message Move {
 }
 
 message GameState {
-    repeated bytes board_history = 1;
-    repeated Move move_history = 2;
+    repeated Move move_history = 1;
 }
 
 message SaveGameRequest {

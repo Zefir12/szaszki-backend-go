@@ -22,11 +22,7 @@ func GetRandomCard() int8 {
 }
 
 func GetRandomValidCard(board *Board, color int8) int8 {
-	// All pieces flag
-	allPieces := CanPawn | CanKnight | CanBishop | CanRook | CanQueen | CanKing
-
-	// Get all pieces that can legally move for this color
-	movers := board.GeAllPiecesThatCanMoveLegallyThisTurn(color, allPieces)
+	movers := board.GetAllPiecesThatCanMoveLegallyThisTurnCheckAll(color)
 
 	// If no legal moves, fallback to random card
 	if movers == 0 {

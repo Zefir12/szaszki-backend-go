@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/zefir/szaszki-go-backend/internal"
+	chess "github.com/zefir/szaszki-go-backend/internal/chessengine"
 )
 
 // GameInfo is the JSON shape returned to the admin frontend.
@@ -32,6 +33,8 @@ type GameInfo struct {
 	MoveHistoryLen int `json:"moveHistoryLen"`
 
 	LastMoveTime string `json:"lastMoveTime"` // RFC3339 or empty
+
+	FEN string `json:"FEN"`
 }
 
 func GetGamesEndpoint(w http.ResponseWriter, r *http.Request) {
@@ -51,7 +54,7 @@ func GetGamesEndpoint(w http.ResponseWriter, r *http.Request) {
 		}
 
 		side := "w"
-		if g.SideToMove == 1 {
+		if g.Board.SideToMove() == chess.White {
 			side = "w"
 		}
 
@@ -82,6 +85,7 @@ func GetGamesEndpoint(w http.ResponseWriter, r *http.Request) {
 
 			MoveHistoryLen: len(g.MoveHistory),
 			LastMoveTime:   lastMoveISO,
+			FEN:            g.Board.ToFEN(),
 		}
 
 		g.Mu.RUnlock()

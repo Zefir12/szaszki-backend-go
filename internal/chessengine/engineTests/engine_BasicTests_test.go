@@ -214,3 +214,36 @@ func TestPGNGames(t *testing.T) {
 		})
 	}
 }
+
+func TestIsSquareAttacked(t *testing.T) {
+	board := chess.NewStartingPosition()
+
+	if !chess.IsSquareAttacked(43, &board, chess.Black) {
+		t.Errorf("Square isnt attacked when it should be")
+	}
+
+	if !chess.IsSquareAttacked(16, &board, chess.White) {
+		t.Errorf("Square isnt attacked when it should be")
+	}
+
+	if chess.IsSquareAttacked(24, &board, chess.Black) {
+		t.Errorf("Square is attacked when it shouldn't be")
+	}
+	if chess.IsSquareAttacked(24, &board, chess.White) {
+		t.Errorf("Square is attacked when it shouldn't be")
+	}
+}
+
+func TestGetPiece(t *testing.T) {
+	board := chess.NewStartingPosition()
+
+	result := board.GetPieceType(0, chess.White)
+	if result != chess.Rook {
+		t.Errorf("Got =%v, expected rook", result)
+	}
+
+	result = board.GetPieceType(3, chess.White)
+	if result != chess.Queen {
+		t.Errorf("Got =%v, expected queen", result)
+	}
+}

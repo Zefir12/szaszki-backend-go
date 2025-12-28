@@ -32,14 +32,12 @@ func (g *GameKeeper) CreateGame(players []*Client, mode uint16) *GameSession {
 
 	startingBoard := chess.NewStartingPosition()
 	gamesession := &GameSession{
-		ID:           g.nextID,
-		Players:      players,
-		Mode:         mode,
-		Board:        startingBoard,
-		BoardHistory: []chess.Board{startingBoard},
-		SideToMove:   chess.White,
-		MoveChannel:  make(chan PlayerMove, 4),
-		GameActive:   true,
+		ID:          g.nextID,
+		Players:     players,
+		Mode:        mode,
+		Board:       startingBoard,
+		MoveChannel: make(chan PlayerMove, 4),
+		GameActive:  true,
 	}
 	g.games[g.nextID] = gamesession
 	g.nextID++
