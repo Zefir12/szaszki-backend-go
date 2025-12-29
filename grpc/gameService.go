@@ -8,7 +8,7 @@ import (
 	"google.golang.org/grpc"
 )
 
-func SaveGame(gameID uint32, userIDWhite uint32, userIDBlack uint32, gameState *pb.GameState, pgn string) (*pb.SaveGameResponse, error) {
+func SaveGame(gameID uint32, userIDWhite uint32, userIDBlack uint32, pgn string) (*pb.SaveGameResponse, error) {
 	conn, err := grpc.Dial("localhost:4409", grpc.WithInsecure())
 	if err != nil {
 		return nil, err
@@ -21,7 +21,6 @@ func SaveGame(gameID uint32, userIDWhite uint32, userIDBlack uint32, gameState *
 		GameId:      gameID,
 		UserIdWhite: userIDWhite,
 		UserIdBlack: userIDBlack,
-		GameState:   gameState,
 		Pgn:         pgn,
 	}
 

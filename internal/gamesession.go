@@ -14,8 +14,6 @@ import (
 	bh "github.com/zefir/szaszki-go-backend/internal/binaryHelpers"
 	chess "github.com/zefir/szaszki-go-backend/internal/chessengine"
 	"github.com/zefir/szaszki-go-backend/logger"
-
-	pb "github.com/zefir/szaszki-go-backend/grpc/stuff"
 )
 
 type GameSession struct {
@@ -213,23 +211,7 @@ func (g *GameSession) Surrender(client *Client) {
 	msg := fmt.Sprintf("Player %d surrendered. Player %d wins.", loserID, winnerID)
 	log.Println(msg)
 
-	payload, _ := json.Marshal(struct {
-		GameID uint32 `json:"game_id"`
-		Winner uint32 `json:"winner"`
-		Loser  uint32 `json:"loser"`
-		Reason string `json:"reason"`
-	}{
-		g.ID,
-		winnerID,
-		loserID,
-		"surrender",
-	})
-
-	for _, p := range g.Players {
-		_ = p.WriteMsg(ServerCmds.GameEnded, payload)
-	}
-
-	//g.saveGame()
+	g.saveGame()
 }
 
 func IndexToSqaureName(index int8) string {
@@ -368,6 +350,24 @@ func (g *GameSession) BroadcastCards() {
 	}
 }
 
+func (g *GameSession) BroadcastGameEnded() {
+	payload, _ := json.Marshal(struct {
+		GameID uint32 `json:"game_id"`
+		Winner uint32 `json:"winner"`
+		Loser  uint32 `json:"loser"`
+		Reason string `json:"reason"`
+	}{
+		g.ID,
+		1,
+		2,
+		"time",
+	})
+
+	for _, p := range g.Players {
+		_ = p.WriteMsg(ServerCmds.GameEnded, payload)
+	}
+}
+
 // to fix
 func (g *GameSession) handleTimeLoss(side int) {
 	loserID := g.Players[side].UserID
@@ -376,23 +376,7 @@ func (g *GameSession) handleTimeLoss(side int) {
 	msg := fmt.Sprintf("Player %d lost on time. Player %d wins.", loserID, winnerID)
 	log.Println(msg)
 
-	payload, _ := json.Marshal(struct {
-		GameID uint32 `json:"game_id"`
-		Winner uint32 `json:"winner"`
-		Loser  uint32 `json:"loser"`
-		Reason string `json:"reason"`
-	}{
-		g.ID,
-		winnerID,
-		loserID,
-		"time",
-	})
-
-	for _, p := range g.Players {
-		_ = p.WriteMsg(ServerCmds.GameEnded, payload)
-	}
-
-	//g.saveGame()
+	g.saveGame()
 }
 
 func (g *GameSession) HasPlayableMove(cards []int8, color int8) bool {
@@ -432,8 +416,16 @@ func (g *GameSession) ShouldEndGame(color int8) bool {
 		if g.Board.HasAnyLegalMove(color) {
 			if color != 0 {
 				g.WhiteHp -= 1
+				if g.WhiteHp <= 0 {
+					log.Println("bialy zginom")
+					return true
+				}
 			} else {
 				g.BlackHp -= 1
+				if g.BlackHp <= 0 {
+					log.Println("czarny zginom")
+					return true
+				}
 			}
 			g.BroadcastHp()
 		} else {
@@ -451,6 +443,7 @@ func (g *GameSession) ShouldEndGame(color int8) bool {
 }
 
 func (g *GameSession) saveGame() {
+	g.BroadcastGameEnded()
 	result := "1-0"
 	initialWhiteCards := []int8{6, 6, 6, 5, 5} // Store these when game starts
 	initialBlackCards := []int8{6, 6, 6, 5, 5}
@@ -475,17 +468,9 @@ func (g *GameSession) saveGame() {
 		initialBlackCards,
 	)
 
-	// Convert move history to protobuf format
-	var moveHistoryProto []*pb.Move
-	for _, move := range g.MoveHistory {
-		moveHistoryProto = append(moveHistoryProto, &pb.Move{From: int32(move.From), To: int32(move.To), Promotion: int32(move.Promotion)})
-	}
+	fmt.Println(pgn)
 
-	gameState := &pb.GameState{
-		MoveHistory: moveHistoryProto,
-	}
-
-	_, err := grpc.SaveGame(g.ID, g.Players[0].UserID, g.Players[1].UserID, gameState, pgn)
+	_, err := grpc.SaveGame(g.ID, g.Players[0].UserID, g.Players[1].UserID, pgn)
 	if err != nil {
 		logger.Log.Warn().Err(err).Uint32("gameId", g.ID).Msg("Failed to save game")
 	}

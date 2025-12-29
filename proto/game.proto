@@ -4,22 +4,11 @@ package game;
 
 option go_package = "/grpc/stuff;auth";
 
-message Move {
-    int32 from = 1;
-    int32 to = 2;
-    int32 promotion = 3;
-}
-
-message GameState {
-    repeated Move move_history = 1;
-}
-
 message SaveGameRequest {
     uint32 game_id = 1;
     uint32 user_id_white = 2;
     uint32 user_id_black = 3;
-    GameState game_state = 4;
-    string pgn = 5;
+    string pgn = 4;
 }
 
 message SaveGameResponse {

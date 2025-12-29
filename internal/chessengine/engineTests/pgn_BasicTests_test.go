@@ -493,8 +493,8 @@ func TestPGNRoundTripWithRealGame(t *testing.T) {
 	generatedGame := generatedGames[0]
 
 	// Compare move counts
-	if len(generatedGame.Moves)/5 != len(game.Moves) {
-		t.Fatalf("Move count mismatch. Original: %d, Generated: %d", len(game.Moves), len(generatedGame.Moves)/5)
+	if len(generatedGame.Moves) != len(game.Moves) {
+		t.Fatalf("Move count mismatch. Original: %d, Generated: %d", len(game.Moves), len(generatedGame.Moves))
 	}
 
 	// Play through generated PGN moves
