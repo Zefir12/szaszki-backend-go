@@ -24,6 +24,8 @@ type GameSession struct {
 	Mode         uint16
 	Board        chess.Board
 	MoveHistory  []chess.Move
+	TimeHistory  []time.Duration
+	CardHistory  [][]chess.CardSwap
 	MoveChannel  chan PlayerMove
 	GameActive   bool
 	WhiteTime    time.Duration
@@ -105,7 +107,7 @@ func (g *GameSession) Run() {
 	}
 	logger.Log.Info().Uint32("gameId", g.ID).Msg("Game started!")
 
-	//g.Board = chess.NewStartingPosition()
+	g.Board = chess.NewStartingPosition()
 	//g.SideToMove = chess.White
 
 	// Initialize timers
@@ -156,26 +158,32 @@ func (g *GameSession) Run() {
 		move := <-g.MoveChannel
 		//logger.Log.Info().Uint32("gameId", g.ID).Int("from", int(move.From)).Int("to", int(move.To)).Int("promoteTo", int(move.PromoteTo)).Uint32("playerId", move.Player.UserID).Msg("Received move")
 
-		//Confirm move came from the correct player
-		// if g.Players[g.SideToMove] == move.Player {
-		// 	logger.Log.Warn().Uint32("playerId", move.Player.UserID).Uint32("gameId", g.ID).Msg("ignoring move from wrong player")
-		// 	continue
-		// }
+		color := g.Board.SideToMove()
+		if g.Players[g.Board.SideToMove()] != move.Player {
+			logger.Log.Warn().Uint32("playerId", move.Player.UserID).Uint32("gameId", g.ID).Msg("ignoring move from wrong player")
+			log.Printf("Move from wrong player")
+			continue
+		}
 
-		//is move by correct palyer
-
-		// // check legality
-		// if !chess.IsMoveLegal(&g.Board, move.From, move.To, move.PromoteTo) {
-		// 	log.Printf("illigal move: from: %s, to: %s", IndexToSqaureName(move.From), IndexToSqaureName(move.To))
-		// 	// reject move, ask player again
-		// 	continue
-		// }
+		if !chess.IsMoveLegal(&g.Board, move.From, move.To, move.PromoteTo) {
+			log.Printf("illigal move: from: %s, to: %s", IndexToSqaureName(move.From), IndexToSqaureName(move.To))
+			// reject move, ask player again
+			continue
+		}
 
 		removedCardIndexes := g.CardLogicRemoval(move.From, move.CardsToReroll, cfg)
 		madeMove := chess.MakeMove(&g.Board, move.From, move.To, move.PromoteTo, false)
-		g.MoveHistory = append(g.MoveHistory, madeMove)
 
-		g.CardLogicAdding(removedCardIndexes, cfg)
+		if color == chess.White {
+			g.TimeHistory = append(g.TimeHistory, g.WhiteTime)
+		} else {
+			g.TimeHistory = append(g.TimeHistory, g.BlackTime)
+		}
+
+		g.LastMoveTime = time.Now()
+		g.MoveHistory = append(g.MoveHistory, madeMove)
+		swapHistory := g.CardLogicAdding(removedCardIndexes, cfg)
+		g.CardHistory = append(g.CardHistory, swapHistory)
 
 		g.BroadcastCards()
 
@@ -183,11 +191,9 @@ func (g *GameSession) Run() {
 
 		g.BroadcastTime()
 
-		g.LastMoveTime = time.Now()
-
 		g.Board.FlipSideToMove()
 
-		if g.shouldEndGame(g.Board.SideToMove()) {
+		if g.ShouldEndGame(g.Board.SideToMove()) {
 			g.saveGame()
 			break
 		}
@@ -301,12 +307,14 @@ func (g *GameSession) CardLogicRemoval(from int8, cardsToReroll [5]int8, cfg *co
 	return removedCardIndexes
 }
 
-func (g *GameSession) CardLogicAdding(removedCardIndexes []int, cfg *config.ConfigValues) {
+func (g *GameSession) CardLogicAdding(removedCardIndexes []int, cfg *config.ConfigValues) []chess.CardSwap {
+	swaps := []chess.CardSwap{}
 	if g.Board.SideToMove() == chess.White {
 		for _, idx := range removedCardIndexes {
 			newCard := chess.GetRandomValidCard(&g.Board, chess.White)
 			if idx >= 0 && idx < len(g.WhiteCards) {
 				g.WhiteCards[idx] = newCard
+				swaps = append(swaps, chess.CardSwap{IndexReplaced: int8(idx), NewCard: newCard})
 			}
 		}
 	} else {
@@ -314,9 +322,11 @@ func (g *GameSession) CardLogicAdding(removedCardIndexes []int, cfg *config.Conf
 			newCard := chess.GetRandomValidCard(&g.Board, chess.Black)
 			if idx >= 0 && idx < len(g.BlackCards) {
 				g.BlackCards[idx] = newCard
+				swaps = append(swaps, chess.CardSwap{IndexReplaced: int8(idx), NewCard: newCard})
 			}
 		}
 	}
+	return swaps
 }
 
 func (g *GameSession) BroadcastHp() {
@@ -385,7 +395,7 @@ func (g *GameSession) handleTimeLoss(side int) {
 	//g.saveGame()
 }
 
-func (g *GameSession) hasPlayableMove(cards []int8, color int8) bool {
+func (g *GameSession) HasPlayableMove(cards []int8, color int8) bool {
 	var cardPieces uint8 = 0
 	for _, card := range cards {
 		pieceType := chess.CardToEnginePiece(card)
@@ -398,7 +408,7 @@ func (g *GameSession) hasPlayableMove(cards []int8, color int8) bool {
 	return g.Board.GeAllPiecesThatCanMoveLegallyThisTurn(color, cardPieces) > 0
 }
 
-func (g *GameSession) shouldEndGame(color int8) bool {
+func (g *GameSession) ShouldEndGame(color int8) bool {
 	g.Mu.RLock()
 	defer g.Mu.RUnlock()
 
@@ -416,7 +426,7 @@ func (g *GameSession) shouldEndGame(color int8) bool {
 		currentCards = g.BlackCards
 	}
 
-	hasPlayableMove := g.hasPlayableMove(currentCards, color)
+	hasPlayableMove := g.HasPlayableMove(currentCards, color)
 
 	if !hasPlayableMove {
 		if g.Board.HasAnyLegalMove(color) {
@@ -441,6 +451,30 @@ func (g *GameSession) shouldEndGame(color int8) bool {
 }
 
 func (g *GameSession) saveGame() {
+	result := "1-0"
+	initialWhiteCards := []int8{6, 6, 6, 5, 5} // Store these when game starts
+	initialBlackCards := []int8{6, 6, 6, 5, 5}
+
+	// Create PGN generator
+	pgnGen := chess.NewPGNGenerator(
+		fmt.Sprintf("Player_%d", g.Players[0].UserID),
+		fmt.Sprintf("Player_%d", g.Players[1].UserID),
+	)
+
+	// Set time control based on game settings
+	totalMinutes := int(DefaultWhiteTime.Minutes())
+	pgnGen.TimeControl = fmt.Sprintf("%d+0", totalMinutes*60)
+	pgnGen.Result = result
+
+	// Generate PGN
+	pgn := pgnGen.GeneratePGN(
+		g.MoveHistory,
+		g.TimeHistory,
+		g.CardHistory,
+		initialWhiteCards,
+		initialBlackCards,
+	)
+
 	// Convert move history to protobuf format
 	var moveHistoryProto []*pb.Move
 	for _, move := range g.MoveHistory {
@@ -450,8 +484,6 @@ func (g *GameSession) saveGame() {
 	gameState := &pb.GameState{
 		MoveHistory: moveHistoryProto,
 	}
-
-	pgn := ""
 
 	_, err := grpc.SaveGame(g.ID, g.Players[0].UserID, g.Players[1].UserID, gameState, pgn)
 	if err != nil {

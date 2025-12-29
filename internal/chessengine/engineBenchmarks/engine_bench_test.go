@@ -3,55 +3,57 @@ package chess
 import (
 	"strings"
 	"testing"
+
+	chess "github.com/zefir/szaszki-go-backend/internal/chessengine"
 )
 
 // Benchmark SANToMove parsing
 func BenchmarkSANToMove(b *testing.B) {
-	board := NewStartingPosition()
-	MakeMove(&board, 12, 28, 0, false) // e2-e4
+	board := chess.NewStartingPosition()
+	chess.MakeMove(&board, 12, 28, 0, false) // e2-e4
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		SANToMove(&board, "e5")
+		chess.SANToMove(&board, "e5")
 	}
 }
 
-// Benchmark MakeMove
+// Benchmark chess.MakeMove
 func BenchmarkMakeMove(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		board := NewStartingPosition()
-		MakeMove(&board, 12, 28, 0, false) // e2-e4
+		board := chess.NewStartingPosition()
+		chess.MakeMove(&board, 12, 28, 0, false) // e2-e4
 	}
 }
 
 // Benchmark IsMoveLegal
 func BenchmarkIsMoveLegal(b *testing.B) {
-	board := NewStartingPosition()
+	board := chess.NewStartingPosition()
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		IsMoveLegal(&board, 12, 28, 0) // e2-e4
+		chess.IsMoveLegal(&board, 12, 28, 0) // e2-e4
 	}
 }
 
 // Benchmark IsPseudoLegal
 func BenchmarkIsPseudoLegal(b *testing.B) {
-	board := NewStartingPosition()
+	board := chess.NewStartingPosition()
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		IsPseudoLegal(&board, 12, 28, Pawn, White) // e2-e4
+		chess.IsPseudoLegal(&board, 12, 28, chess.Pawn, chess.White) // e2-e4
 	}
 }
 
 // Benchmark IsSquareAttacked
 func BenchmarkIsSquareAttacked(b *testing.B) {
-	board := NewStartingPosition()
+	board := chess.NewStartingPosition()
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		IsSquareAttacked(28, &board, Black) // is e4 attacked by black?
+		chess.IsSquareAttacked(28, &board, chess.Black) // is e4 attacked by chess.Black?
 	}
 }
 
@@ -68,75 +70,75 @@ Rb6+ 48. Kf5 a2 49. h7+ Kg7 50. h8=Q+ Kxh8 51. g7+ Kxg7 52. Ke5 a1=Q+ 53. Kf5
 Qf6+ 54. Ke4 Rb5 55. Ke3 Qe5+ 56. Kf3 Rb4 57. Kf2 Qf4+ 58. Ke2 Rb3 59. Kd1 Qe3
 60. Kc2 Qc3+ 61. Kd1 Rb2 1/2-1/2`
 
-	games, _ := ParsePGNReader(strings.NewReader(pgn))
+	games, _ := chess.ParsePGNReader(strings.NewReader(pgn))
 	game := games[0]
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		board := NewStartingPosition()
+		board := chess.NewStartingPosition()
 		for _, san := range game.Moves {
-			move, _ := SANToMove(&board, san)
-			MakeMove(&board, move.From, move.To, move.Promotion, false)
+			move, _ := chess.SANToMove(&board, san)
+			chess.MakeMove(&board, move.From, move.To, move.Promotion, false)
 		}
 	}
 }
 
 // Benchmark different piece move generations
 func BenchmarkPawnMoveGeneration(b *testing.B) {
-	board := NewStartingPosition()
-	occupied := board.Occupied[White] | board.Occupied[Black]
+	board := chess.NewStartingPosition()
+	occupied := board.Occupied[chess.White] | board.Occupied[chess.Black]
 	empty := ^occupied
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		SinglePawnPush(board.Pawns[White], empty, true)
-		DoublePawnPush(board.Pawns[White], empty, true)
-		PawnAttacks(board.Pawns[White], board.Occupied[Black], true)
+		chess.SinglePawnPush(board.Pawns[chess.White], empty, true)
+		chess.DoublePawnPush(board.Pawns[chess.White], empty, true)
+		chess.PawnAttacks(board.Pawns[chess.White], board.Occupied[chess.Black], true)
 	}
 }
 
 func BenchmarkIsInCheck(b *testing.B) {
-	board := NewStartingPosition()
+	board := chess.NewStartingPosition()
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		board.IsInCheck(White)
+		board.IsInCheck(chess.White)
 	}
 }
 
 func BenchmarkBishopMoveGeneration(b *testing.B) {
-	board := NewStartingPosition()
-	occupied := board.Occupied[White] | board.Occupied[Black]
+	board := chess.NewStartingPosition()
+	occupied := board.Occupied[chess.White] | board.Occupied[chess.Black]
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		slidingAttacksBishop(2, occupied)
+		chess.SlidingAttacksBishop(2, occupied)
 	}
 }
 
 func BenchmarkRookMoveGeneration(b *testing.B) {
-	board := NewStartingPosition()
-	occupied := board.Occupied[White] | board.Occupied[Black]
+	board := chess.NewStartingPosition()
+	occupied := board.Occupied[chess.White] | board.Occupied[chess.Black]
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		slidingAttacksRook(0, occupied)
+		chess.SlidingAttacksRook(0, occupied)
 	}
 }
 
 func BenchmarkQueenMoveGeneration(b *testing.B) {
-	board := NewStartingPosition()
-	occupied := board.Occupied[White] | board.Occupied[Black]
+	board := chess.NewStartingPosition()
+	occupied := board.Occupied[chess.White] | board.Occupied[chess.Black]
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		slidingAttacksQueen(3, occupied)
+		chess.SlidingAttacksQueen(3, occupied)
 	}
 }
 
 // Benchmark board cloning
 func BenchmarkBoardClone(b *testing.B) {
-	board := NewStartingPosition()
+	board := chess.NewStartingPosition()
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -146,7 +148,7 @@ func BenchmarkBoardClone(b *testing.B) {
 
 // Benchmark FEN generation
 func BenchmarkToFEN(b *testing.B) {
-	board := NewStartingPosition()
+	board := chess.NewStartingPosition()
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -157,7 +159,7 @@ func BenchmarkToFEN(b *testing.B) {
 // Benchmark position after complex middle game
 func BenchmarkComplexPositionLegalMoves(b *testing.B) {
 	// Position after move 15 from the test game
-	board := NewStartingPosition()
+	board := chess.NewStartingPosition()
 	moves := []struct{ from, to int8 }{
 		{12, 28}, {52, 36}, {11, 27}, {36, 27}, {3, 27},
 		{57, 42}, {27, 3}, {62, 45}, {1, 18}, {58, 25},
@@ -165,83 +167,83 @@ func BenchmarkComplexPositionLegalMoves(b *testing.B) {
 	}
 
 	for _, m := range moves {
-		MakeMove(&board, m.from, m.to, 0, false)
+		chess.MakeMove(&board, m.from, m.to, 0, false)
 	}
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		board.HasAnyLegalMove(Black)
+		board.HasAnyLegalMove(chess.Black)
 	}
 }
 
 func BenchmarkCanAnyPawnMove_NoPawns(b *testing.B) {
-	board, _ := ParseFEN("rnbqkbnr/8/8/8/8/8/8/RNBQKBNR w KQkq - 0 1")
+	board, _ := chess.ParseFEN("rnbqkbnr/8/8/8/8/8/8/RNBQKBNR w KQkq - 0 1")
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		board.CanAnyPawnMove(White)
+		board.CanAnyPawnMove(chess.White)
 	}
 }
 
 func BenchmarkCanAnyPawnMove_BlockedPawns(b *testing.B) {
-	board, _ := ParseFEN("7k/8/pppppppp/nnnnnnnn/NNNNNNNN/PPPPPPPP/8/7K w - - 0 1")
+	board, _ := chess.ParseFEN("7k/8/pppppppp/nnnnnnnn/NNNNNNNN/PPPPPPPP/8/7K w - - 0 1")
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		board.CanAnyPawnMove(White)
+		board.CanAnyPawnMove(chess.White)
 	}
 }
 
 func BenchmarkCanAnyPawnMove_ComplexPosition(b *testing.B) {
-	board, _ := ParseFEN("r1b3r1/ppppkppP/2n2n2/1B2p3/4P1q1/b4N2/PPPP1P1P/RNB1QR1K w - - 5 11")
+	board, _ := chess.ParseFEN("r1b3r1/ppppkppP/2n2n2/1B2p3/4P1q1/b4N2/PPPP1P1P/RNB1QR1K w - - 5 11")
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		board.CanAnyPawnMove(White)
+		board.CanAnyPawnMove(chess.White)
 	}
 }
 
 func BenchmarkCanAnyPawnMove_EndgamePosition(b *testing.B) {
-	board, _ := ParseFEN("8/2p5/3p4/KP5r/1R3p1k/8/4P1P1/8 w - - 0 1")
+	board, _ := chess.ParseFEN("8/2p5/3p4/KP5r/1R3p1k/8/4P1P1/8 w - - 0 1")
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		board.CanAnyPawnMove(White)
+		board.CanAnyPawnMove(chess.White)
 	}
 }
 
 func BenchmarkCanAnyRookMove_NoRooks(b *testing.B) {
-	board, _ := ParseFEN("1nbqkbn1/pppppppp/8/8/8/8/PPPPPPPP/1NBQKBN1 w - - 0 1")
+	board, _ := chess.ParseFEN("1nbqkbn1/pppppppp/8/8/8/8/PPPPPPPP/1NBQKBN1 w - - 0 1")
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		board.CanAnyRookMove(White)
+		board.CanAnyRookMove(chess.White)
 	}
 }
 
 func BenchmarkCanAnyRookMove_ComplexPosition(b *testing.B) {
-	board, _ := ParseFEN("r1b3r1/ppppkppP/2n2n2/1B2p3/4P1q1/b4N2/PPPP1P1P/RNB1QR1K w - - 5 11")
+	board, _ := chess.ParseFEN("r1b3r1/ppppkppP/2n2n2/1B2p3/4P1q1/b4N2/PPPP1P1P/RNB1QR1K w - - 5 11")
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		board.CanAnyRookMove(White)
+		board.CanAnyRookMove(chess.White)
 	}
 }
 
 func BenchmarkCanAnyRookMoveSafe_NoRooks(b *testing.B) {
-	board, _ := ParseFEN("1nbqkbn1/pppppppp/8/8/8/8/PPPPPPPP/1NBQKBN1 w - - 0 1")
+	board, _ := chess.ParseFEN("1nbqkbn1/pppppppp/8/8/8/8/PPPPPPPP/1NBQKBN1 w - - 0 1")
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		board.CanAnyRookMoveSafe(White)
+		board.CanAnyRookMoveSafe(chess.White)
 	}
 }
 
 func BenchmarkCanAnyRookMoveSafe_ComplexPosition(b *testing.B) {
-	board, _ := ParseFEN("r1b3r1/ppppkppP/2n2n2/1B2p3/4P1q1/b4N2/PPPP1P1P/RNB1QR1K w - - 5 11")
+	board, _ := chess.ParseFEN("r1b3r1/ppppkppP/2n2n2/1B2p3/4P1q1/b4N2/PPPP1P1P/RNB1QR1K w - - 5 11")
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		board.CanAnyRookMoveSafe(White)
+		board.CanAnyRookMoveSafe(chess.White)
 	}
 }

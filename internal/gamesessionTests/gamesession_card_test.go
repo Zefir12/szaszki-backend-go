@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/zefir/szaszki-go-backend/config"
+	"github.com/zefir/szaszki-go-backend/internal"
 	chess "github.com/zefir/szaszki-go-backend/internal/chessengine"
 )
 
@@ -32,14 +33,14 @@ func setupTestConfig() *config.ConfigValues {
 }
 
 // Helper to create a test game session
-func createTestGameSession() *GameSession {
-	return &GameSession{
+func createTestGameSession() *internal.GameSession {
+	return &internal.GameSession{
 		ID:           1,
-		Players:      []*Client{{UserID: 1}, {UserID: 2}},
+		Players:      []*internal.Client{{UserID: 1}, {UserID: 2}},
 		Mode:         1,
 		Board:        chess.NewStartingPosition(),
 		MoveHistory:  []chess.Move{},
-		MoveChannel:  make(chan PlayerMove, 10),
+		MoveChannel:  make(chan internal.PlayerMove, 10),
 		GameActive:   true,
 		WhiteTime:    10 * time.Minute,
 		BlackTime:    10 * time.Minute,
@@ -175,7 +176,7 @@ func TestHasPlayableMove_WithMatchingCards(t *testing.T) {
 	// Give white some pawn cards
 	cards := []int8{6, 6, 5, 4, 3}
 
-	result := g.hasPlayableMove(cards, g.Board.SideToMove())
+	result := g.HasPlayableMove(cards, g.Board.SideToMove())
 
 	if !result {
 		t.Error("Expected hasPlayableMove to return true with pawn cards")
@@ -192,7 +193,7 @@ func TestHasPlayableMove_NoMatchingCards(t *testing.T) {
 	// White can only move pawns and knights, but give only other cards
 	cards := []int8{4, 4, 3, 3, 2}
 
-	result := g.hasPlayableMove(cards, g.Board.SideToMove())
+	result := g.HasPlayableMove(cards, g.Board.SideToMove())
 
 	if result {
 		t.Error("Expected hasPlayableMove to return false without matching cards")
@@ -210,7 +211,7 @@ func TestHasPlayableMove_Stalemate(t *testing.T) {
 
 	cards := []int8{1, 1, 1, 1, 1} // All king cards
 
-	result := g.hasPlayableMove(cards, g.Board.SideToMove())
+	result := g.HasPlayableMove(cards, g.Board.SideToMove())
 
 	if result {
 		t.Error("Expected hasPlayableMove to return false in stalemate")
@@ -253,7 +254,7 @@ func BenchmarkHasPlayableMove(b *testing.B) {
 	cards := []int8{6, 6, 5, 4, 3}
 
 	for b.Loop() {
-		g.hasPlayableMove(cards, g.Board.SideToMove())
+		g.HasPlayableMove(cards, g.Board.SideToMove())
 	}
 }
 

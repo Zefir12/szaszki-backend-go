@@ -21,6 +21,20 @@ func GetRandomCard() int8 {
 	return int8(rand.Intn(6)) + 1
 }
 
+const (
+	CardKing   = 1
+	CardQueen  = 2
+	CardRook   = 3
+	CardBishop = 4
+	CardKnight = 5
+	CardPawn   = 6
+)
+
+type CardSwap struct {
+	IndexReplaced int8
+	NewCard       int8
+}
+
 func GetRandomValidCard(board *Board, color int8) int8 {
 	movers := board.GetAllPiecesThatCanMoveLegallyThisTurnCheckAll(color)
 

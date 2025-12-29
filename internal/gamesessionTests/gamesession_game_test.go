@@ -50,7 +50,7 @@ func TestShouldEndGame(t *testing.T) {
 	g.Board = b.Clone()
 	g.BlackCards = []int8{4, 4, 3, 3, 2}
 
-	gameEnded := g.shouldEndGame(chess.Black)
+	gameEnded := g.ShouldEndGame(chess.Black)
 
 	if gameEnded {
 		t.Error("Game shouldnt end")

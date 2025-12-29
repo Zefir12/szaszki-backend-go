@@ -62,6 +62,7 @@ func TestBasicMoves(t *testing.T) {
 				}
 
 				chess.MakeMove(board, from, to, 0, false)
+				board.FlipSideToMove()
 				result := board.ToFEN()
 
 				if !strings.HasPrefix(result, tt.expected) {
@@ -204,6 +205,7 @@ func TestPGNGames(t *testing.T) {
 					t.Fatalf("Move %d (%s) failed: %v", i+1, san, err)
 				}
 				chess.MakeMove(&board, move.From, move.To, move.Promotion, false)
+				board.FlipSideToMove()
 			}
 
 			engineCore := strings.Join(strings.Fields(board.ToFEN())[:4], " ")

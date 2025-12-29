@@ -244,7 +244,7 @@ func SquareNameToIndex(name string) int8 {
 	return rank*8 + file
 }
 
-func slidingAttacksRook(sq int, occupied Bitboard) Bitboard {
+func SlidingAttacksRook(sq int, occupied Bitboard) Bitboard {
 	var attacks Bitboard
 	for _, d := range rookDeltas {
 		for s := sq + d; s >= 0 && s < 64; s += d {
@@ -260,7 +260,7 @@ func slidingAttacksRook(sq int, occupied Bitboard) Bitboard {
 	return attacks
 }
 
-func slidingAttacksBishop(sq int, occupied Bitboard) Bitboard {
+func SlidingAttacksBishop(sq int, occupied Bitboard) Bitboard {
 	var attacks Bitboard
 	for _, d := range bishopDeltas {
 		for s := sq + d; s >= 0 && s < 64; s += d {
@@ -276,8 +276,8 @@ func slidingAttacksBishop(sq int, occupied Bitboard) Bitboard {
 	return attacks
 }
 
-func slidingAttacksQueen(sq int, occupied Bitboard) Bitboard {
-	return slidingAttacksRook(sq, occupied) | slidingAttacksBishop(sq, occupied)
+func SlidingAttacksQueen(sq int, occupied Bitboard) Bitboard {
+	return SlidingAttacksRook(sq, occupied) | SlidingAttacksBishop(sq, occupied)
 }
 
 //go:inline
@@ -353,7 +353,7 @@ func IsSquareAttacked(sq int, b *Board, attackerColor int8) bool {
 	// === Bishops / Queens ===
 	bq := b.Bishops[attackerColor] | b.Queens[attackerColor]
 	if bq != 0 {
-		if slidingAttacksBishop(sq, occ)&bq != 0 {
+		if SlidingAttacksBishop(sq, occ)&bq != 0 {
 			return true
 		}
 	}
@@ -361,7 +361,7 @@ func IsSquareAttacked(sq int, b *Board, attackerColor int8) bool {
 	// === Rooks / Queens ===
 	rq := b.Rooks[attackerColor] | b.Queens[attackerColor]
 	if rq != 0 {
-		if slidingAttacksRook(sq, occ)&rq != 0 {
+		if SlidingAttacksRook(sq, occ)&rq != 0 {
 			return true
 		}
 	}
@@ -403,15 +403,15 @@ func IsPseudoLegal(board *Board, from, to int8, piece int, color int8) bool {
 		return knightMoves[from]&toBB != 0
 
 	case Bishop:
-		attacks := slidingAttacksBishop(int(from), occupied)
+		attacks := SlidingAttacksBishop(int(from), occupied)
 		return attacks&toBB != 0
 
 	case Rook:
-		attacks := slidingAttacksRook(int(from), occupied)
+		attacks := SlidingAttacksRook(int(from), occupied)
 		return attacks&toBB != 0
 
 	case Queen:
-		attacks := slidingAttacksQueen(int(from), occupied)
+		attacks := SlidingAttacksQueen(int(from), occupied)
 		return attacks&toBB != 0
 
 	case King:
@@ -495,7 +495,7 @@ func (b *Board) CanAnyRookMove(color int8) bool {
 	for bb := rooks; bb != 0; {
 		from := int(PopLSB(&bb)) // get the rook square
 		// Compute rook attacks, excluding friendly pieces
-		moves := slidingAttacksRook(from, occupied) & ^b.Occupied[color]
+		moves := SlidingAttacksRook(from, occupied) & ^b.Occupied[color]
 
 		// If any move is legal, return early
 		if moves != 0 {
@@ -512,7 +512,7 @@ func (b *Board) CanAnyBishopMove(color int8) bool {
 	for bb := bishops; bb != 0; {
 		from := int(PopLSB(&bb)) // get the ishop square
 		// Compute rook attacks, excluding friendly pieces
-		moves := slidingAttacksBishop(from, occupied) & ^b.Occupied[color]
+		moves := SlidingAttacksBishop(from, occupied) & ^b.Occupied[color]
 
 		// If any move is legal, return early
 		if moves != 0 {
@@ -529,7 +529,7 @@ func (b *Board) CanAnyQueenMove(color int8) bool {
 	for bb := queens; bb != 0; {
 		from := int(PopLSB(&bb)) // get the ishop square
 		// Compute queen attacks, excluding friendly pieces
-		moves := slidingAttacksQueen(from, occupied) & ^b.Occupied[color]
+		moves := SlidingAttacksQueen(from, occupied) & ^b.Occupied[color]
 
 		// If any move is legal, return early
 		if moves != 0 {
@@ -776,7 +776,7 @@ func (b *Board) CanAnyRookMoveSafe(color int8) bool {
 		from := int8(PopLSB(&bb))
 		fromBB := Bitboard(1) << from
 
-		moves := slidingAttacksRook(int(from), occupied) & ^b.Occupied[color]
+		moves := SlidingAttacksRook(int(from), occupied) & ^b.Occupied[color]
 		for m := moves; m != 0; {
 			to := int8(PopLSB(&m))
 			toBB := Bitboard(1) << to
@@ -811,7 +811,7 @@ func (b *Board) CanAnyBishopMoveSafe(color int8) bool {
 		from := int8(PopLSB(&bb))
 		fromBB := Bitboard(1) << from
 
-		moves := slidingAttacksBishop(int(from), occupied) & ^b.Occupied[color]
+		moves := SlidingAttacksBishop(int(from), occupied) & ^b.Occupied[color]
 		for m := moves; m != 0; {
 			to := int8(PopLSB(&m))
 			toBB := Bitboard(1) << to
@@ -844,7 +844,7 @@ func (b *Board) CanAnyQueenMoveSafe(color int8) bool {
 		from := int8(PopLSB(&bb))
 		fromBB := Bitboard(1) << from
 
-		moves := slidingAttacksQueen(int(from), occupied) & ^b.Occupied[color]
+		moves := SlidingAttacksQueen(int(from), occupied) & ^b.Occupied[color]
 		for m := moves; m != 0; {
 			to := int8(PopLSB(&m))
 			toBB := Bitboard(1) << to
@@ -1134,7 +1134,7 @@ func MakeMove(board *Board, from, to int8, promoteTo int8, testingFuture bool) M
 	board.UpdateMoveCounters(capturedPiece != -1, movingPiece == Pawn)
 
 	// Toggle side to move
-	board.Flags ^= WhiteToMove
+	//board.Flags ^= WhiteToMove
 
 	///#####test debug
 	//log.Printf("FEN: %s", board.ToFEN())

@@ -163,6 +163,7 @@ func TestMakeMove(t *testing.T) {
 
 			// Make the move
 			chess.MakeMove(board, from, to, tt.promoteTo, false)
+			board.FlipSideToMove()
 
 			// Get resulting FEN
 			resultFEN := board.ToFEN()
@@ -198,6 +199,7 @@ func TestMoveSequence_ScholarsMate(t *testing.T) {
 		to := chess.SquareNameToIndex(move.to)
 
 		chess.MakeMove(&board, from, to, 0, false)
+		board.FlipSideToMove()
 
 		resultFEN := board.ToFEN()
 		expectedParts := strings.Fields(move.fen)
