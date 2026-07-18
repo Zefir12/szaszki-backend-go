@@ -1,5 +1,5 @@
 # --- CONFIG ---
-REGISTRY=84.247.175.107:5000
+REGISTRY=registrydedic.zefirlabs.net
 IMAGE=$(REGISTRY)/szaszki-backend-go
 TAG=latest
 

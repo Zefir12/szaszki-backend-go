@@ -6,3 +6,5 @@ main.exe
 tmp/main.exe
 
 bench.txt
+tmp/main.exe~
+tmp/main.exe

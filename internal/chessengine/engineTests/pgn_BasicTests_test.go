@@ -530,8 +530,7 @@ func TestPGNRoundTripMultipleGames(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-
-	for _, tc := range tests {
+D
 		t.Run(tc.Name, func(t *testing.T) {
 			// Parse original PGN
 			games, err := chess.ParsePGNReader(strings.NewReader(tc.PGN))

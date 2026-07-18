@@ -16,6 +16,13 @@ import (
 	"github.com/zefir/szaszki-go-backend/logger"
 )
 
+type GameResult struct {
+	Winner uint32
+	Loser  uint32
+	Reason string // "checkmate", "stalemate", "time", "resignation", "hp_loss"
+	PGN    string
+}
+
 type GameSession struct {
 	ID           uint32
 	Players      []*Client
@@ -33,6 +40,9 @@ type GameSession struct {
 	WhiteHp      int8
 	BlackHp      int8
 	LastMoveTime time.Time
+	GameResult   *GameResult
+	clockTicker  *time.Ticker
+	clockDone    chan bool
 	Mu           sync.RWMutex
 }
 
@@ -55,46 +65,67 @@ type GameStartMsg struct {
 	GameID    uint32 `json:"game_id"`
 }
 
-// to optimize later
+// Improved clock with proper shutdown
 func (g *GameSession) runClock() {
-	ticker := time.NewTicker(500 * time.Millisecond)
-	defer ticker.Stop()
+	g.clockTicker = time.NewTicker(100 * time.Millisecond) // More responsive
+	defer g.clockTicker.Stop()
 
-	for range ticker.C {
-		g.Mu.Lock()
+	lastBroadcast := time.Now()
+	broadcastInterval := 500 * time.Millisecond
 
-		if !g.GameActive {
-			g.Mu.Unlock()
+	for {
+		select {
+		case <-g.clockDone:
 			return
-		}
+		case now := <-g.clockTicker.C:
+			g.Mu.Lock()
 
-		now := time.Now()
-		elapsed := now.Sub(g.LastMoveTime)
-
-		if g.Board.SideToMove() == chess.White {
-			g.WhiteTime -= elapsed
-			if g.WhiteTime <= 0 {
-				g.WhiteTime = 0
-				g.GameActive = false
+			if !g.GameActive {
 				g.Mu.Unlock()
-				g.handleTimeLoss(chess.White)
 				return
 			}
-		} else {
-			g.BlackTime -= elapsed
-			if g.BlackTime <= 0 {
-				g.BlackTime = 0
-				g.GameActive = false
-				g.Mu.Unlock()
-				g.handleTimeLoss(chess.Black)
-				return
+
+			elapsed := now.Sub(g.LastMoveTime)
+
+			if g.Board.SideToMove() == chess.White {
+				g.WhiteTime -= elapsed
+				if g.WhiteTime <= 0 {
+					g.WhiteTime = 0
+					g.GameActive = false
+					g.Mu.Unlock()
+					g.endGame(chess.Black, chess.White, "time")
+					return
+				}
+			} else {
+				g.BlackTime -= elapsed
+				if g.BlackTime <= 0 {
+					g.BlackTime = 0
+					g.GameActive = false
+					g.Mu.Unlock()
+					g.endGame(chess.White, chess.Black, "time")
+					return
+				}
+			}
+
+			g.LastMoveTime = now
+			shouldBroadcast := now.Sub(lastBroadcast) >= broadcastInterval
+			g.Mu.Unlock()
+
+			// Broadcast time less frequently to reduce network traffic
+			if shouldBroadcast {
+				g.BroadcastTime()
+				lastBroadcast = now
 			}
 		}
+	}
+}
 
-		g.LastMoveTime = now
-		g.Mu.Unlock()
-
-		g.BroadcastTime()
+func (g *GameSession) stopClock() {
+	if g.clockDone != nil {
+		close(g.clockDone)
+	}
+	if g.clockTicker != nil {
+		g.clockTicker.Stop()
 	}
 }
 
@@ -116,6 +147,8 @@ func (g *GameSession) Run() {
 	// Initialize hp
 	g.WhiteHp = 3
 	g.BlackHp = 3
+
+	g.clockDone = make(chan bool)
 
 	g.WhiteCards, g.BlackCards = chess.InitCardsWithDuplicates()
 
@@ -156,6 +189,13 @@ func (g *GameSession) Run() {
 		move := <-g.MoveChannel
 		//logger.Log.Info().Uint32("gameId", g.ID).Int("from", int(move.From)).Int("to", int(move.To)).Int("promoteTo", int(move.PromoteTo)).Uint32("playerId", move.Player.UserID).Msg("Received move")
 
+		g.Mu.Lock()
+		if !g.GameActive {
+			g.Mu.Unlock()
+			break
+		}
+		g.Mu.Unlock()
+
 		color := g.Board.SideToMove()
 		if g.Players[g.Board.SideToMove()] != move.Player {
 			logger.Log.Warn().Uint32("playerId", move.Player.UserID).Uint32("gameId", g.ID).Msg("ignoring move from wrong player")
@@ -191,27 +231,34 @@ func (g *GameSession) Run() {
 
 		g.Board.FlipSideToMove()
 
-		if g.ShouldEndGame(g.Board.SideToMove()) {
-			g.saveGame()
+		if shouldEnd, winner, loser, reason := g.CheckGameEnd(g.Board.SideToMove()); shouldEnd {
+			g.endGame(winner, loser, reason)
 			break
 		}
 	}
 }
 
 func (g *GameSession) Surrender(client *Client) {
-	loserID := client.UserID
-	var winnerID uint32
-	for _, p := range g.Players {
-		if p.UserID != loserID {
-			winnerID = p.UserID
+	g.Mu.Lock()
+	defer g.Mu.Unlock()
+
+	if !g.GameActive {
+		return
+	}
+
+	var winner, loser int8
+	for i, p := range g.Players {
+		if p.UserID == client.UserID {
+			loser = int8(i)
+			winner = 1 - int8(i)
 			break
 		}
 	}
 
-	msg := fmt.Sprintf("Player %d surrendered. Player %d wins.", loserID, winnerID)
-	log.Println(msg)
-
-	g.saveGame()
+	g.GameActive = false
+	g.Mu.Unlock()
+	g.endGame(winner, loser, "resignation")
+	g.Mu.Lock()
 }
 
 func IndexToSqaureName(index int8) string {
@@ -244,12 +291,19 @@ func (g *GameSession) BroadcastMove(from, to, promote int8, cfg *config.ConfigVa
 }
 
 func (g *GameSession) BroadcastTime() {
+	g.Mu.RLock()
+	whiteTime := g.WhiteTime
+	blackTime := g.BlackTime
+	gameID := g.ID
+	sideToMove := g.Board.SideToMove()
+	g.Mu.RUnlock()
+
 	payload, err := bh.Pack(
 		[]bh.FieldType{bh.Int32, bh.Int32, bh.Uint32, bh.Int8},
-		[]any{int32(g.WhiteTime.Milliseconds()), int32(g.BlackTime.Milliseconds()), g.ID, g.Board.SideToMove()},
+		[]any{int32(whiteTime.Milliseconds()), int32(blackTime.Milliseconds()), gameID, sideToMove},
 	)
 	if err != nil {
-		logger.Log.Warn().Err(err).Uint32("gameId", g.ID).Msg("couldnt pack time status")
+		logger.Log.Warn().Err(err).Uint32("gameId", gameID).Msg("couldnt pack time status")
 		return
 	}
 
@@ -368,17 +422,6 @@ func (g *GameSession) BroadcastGameEnded() {
 	}
 }
 
-// to fix
-func (g *GameSession) handleTimeLoss(side int) {
-	loserID := g.Players[side].UserID
-	winnerID := g.Players[1-side].UserID
-
-	msg := fmt.Sprintf("Player %d lost on time. Player %d wins.", loserID, winnerID)
-	log.Println(msg)
-
-	g.saveGame()
-}
-
 func (g *GameSession) HasPlayableMove(cards []int8, color int8) bool {
 	var cardPieces uint8 = 0
 	for _, card := range cards {
@@ -392,14 +435,10 @@ func (g *GameSession) HasPlayableMove(cards []int8, color int8) bool {
 	return g.Board.GeAllPiecesThatCanMoveLegallyThisTurn(color, cardPieces) > 0
 }
 
-func (g *GameSession) ShouldEndGame(color int8) bool {
+// CheckGameEnd returns (shouldEnd, winner, loser, reason)
+func (g *GameSession) CheckGameEnd(color int8) (bool, int8, int8, string) {
 	g.Mu.RLock()
 	defer g.Mu.RUnlock()
-
-	// Check if game is too old
-	// if time.Since(g.LastActivity) > 10*time.Minute {
-	// 	return true
-	// }
 
 	inCheck := g.Board.IsInCheck(color)
 
@@ -414,52 +453,105 @@ func (g *GameSession) ShouldEndGame(color int8) bool {
 
 	if !hasPlayableMove {
 		if g.Board.HasAnyLegalMove(color) {
-			if color != 0 {
+			// Player has legal moves but no matching cards - HP loss
+			if color == chess.White {
 				g.WhiteHp -= 1
 				if g.WhiteHp <= 0 {
-					log.Println("bialy zginom")
-					return true
+					return true, chess.Black, chess.White, "hp_loss"
 				}
 			} else {
 				g.BlackHp -= 1
 				if g.BlackHp <= 0 {
-					log.Println("czarny zginom")
-					return true
+					return true, chess.White, chess.Black, "hp_loss"
 				}
 			}
 			g.BroadcastHp()
 		} else {
+			// No legal moves at all
 			if inCheck {
-				log.Println("checkmate")
-				return true
+				winner := int8(1 - color)
+				return true, winner, color, "checkmate"
 			} else {
-				log.Println("stalemate")
-				return true
+				return true, -1, -1, "stalemate"
 			}
 		}
 	}
 
-	return false
+	return false, -1, -1, ""
 }
 
-func (g *GameSession) saveGame() {
+// endGame handles all game ending logic
+func (g *GameSession) endGame(winner, loser int8, reason string) {
+	g.Mu.Lock()
+	g.GameActive = false
+	g.Mu.Unlock()
+
+	// Stop the clock immediately
+	g.stopClock()
+
+	// Prepare result
+	var winnerID, loserID uint32
+	var pgnResult string
+
+	if reason == "stalemate" {
+		pgnResult = "1/2-1/2"
+		if len(g.Players) >= 2 {
+			winnerID = 0
+			loserID = 0
+		}
+	} else {
+		if winner == chess.White {
+			pgnResult = "1-0"
+		} else {
+			pgnResult = "0-1"
+		}
+
+		if winner >= 0 && winner < int8(len(g.Players)) {
+			winnerID = g.Players[winner].UserID
+		}
+		if loser >= 0 && loser < int8(len(g.Players)) {
+			loserID = g.Players[loser].UserID
+		}
+	}
+
+	g.GameResult = &GameResult{
+		Winner: winnerID,
+		Loser:  loserID,
+		Reason: reason,
+	}
+
+	logger.Log.Info().
+		Uint32("gameId", g.ID).
+		Uint32("winner", winnerID).
+		Uint32("loser", loserID).
+		Str("reason", reason).
+		Msg("Game ended")
+
+	// Save game
+	g.saveGame(pgnResult)
+
+	// Broadcast to players
 	g.BroadcastGameEnded()
-	result := "1-0"
-	initialWhiteCards := []int8{6, 6, 6, 5, 5} // Store these when game starts
+
+	// Clean up player states
+	for _, p := range g.Players {
+		p.CurrentlyPlaying = false
+	}
+}
+
+func (g *GameSession) saveGame(result string) {
+	initialWhiteCards := []int8{6, 6, 6, 5, 5} // Store these at game start
 	initialBlackCards := []int8{6, 6, 6, 5, 5}
 
-	// Create PGN generator
 	pgnGen := chess.NewPGNGenerator(
 		fmt.Sprintf("Player_%d", g.Players[0].UserID),
 		fmt.Sprintf("Player_%d", g.Players[1].UserID),
 	)
 
-	// Set time control based on game settings
 	totalMinutes := int(DefaultWhiteTime.Minutes())
 	pgnGen.TimeControl = fmt.Sprintf("%d+0", totalMinutes*60)
 	pgnGen.Result = result
 
-	// Generate PGN
 	pgn := pgnGen.GeneratePGN(
 		g.MoveHistory,
 		g.TimeHistory,
@@ -469,6 +561,10 @@ func (g *GameSession) saveGame() {
 	)
 
 	fmt.Println(pgn)
+
+	if g.GameResult != nil {
+		g.GameResult.PGN = pgn
+	}
 
 	_, err := grpc.SaveGame(g.ID, g.Players[0].UserID, g.Players[1].UserID, pgn)
 	if err != nil {
